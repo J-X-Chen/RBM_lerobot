@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "astribot_lerobot"
+version = "0.3.0"
+description = "Astribot S1 LeRobot training and real-machine evaluation helpers"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Astribot"}
+]
+keywords = ["astribot", "robotics", "lerobot"]
+
+dependencies = [
+    "tyro>=0.9.10",
+    "matplotlib>=3.9.0",
+    "meshcat==0.3.2",
+    "logging_mp"
+]
+
+[tool.setuptools.packages.find]
+include = ["astribot_lerobot*"]
+namespaces = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+exclude = ["build", "venv", "__pycache__"]
+fix = true
+show-fixes = true
+
+# [tool.ruff.lint]
+# select = ["E4", "E7", "E9", "F", "I", "N", "B", "C4", "SIM"]
+# ignore = ["N801"]
+
+[tool.ruff.lint.per-file-ignores]
+"constants.py" = ["N815"]
+
+[tool.bandit]
+exclude_dirs = []
+skips = ["B101", "B311", "B404", "B603", "B615"]

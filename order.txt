@@ -1,0 +1,271 @@
+# Astribot S1 / LeRobot v3 commands
+# Run these from a bash shell on the robot/training machine.
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)
+ROOT=${ROOT:-$SCRIPT_DIR}
+PROJECT_DIR=${PROJECT_DIR:-$ROOT/astribot_lerobot}
+DATASET=${DATASET:-$ROOT/lerobotv3_datasets/lerobotv3_test_joints}
+REPO_ID=${REPO_ID:-local/lerobotv3_test_joints}
+TASK=${TASK:-"Replay the Astribot S1 joint test trajectory."}
+FEATURES='["action","observation.state","observation.images.head","observation.images.left","observation.images.right"]'
+CAMERA_FEATURES='["observation.images.head","observation.images.left","observation.images.right"]'
+export PYTHONPATH=$PROJECT_DIR/lerobot/src:${PYTHONPATH:-}
+
+
+################################################################################
+# 0. Dataset sanity check
+################################################################################
+
+cd $ROOT
+
+python -c 'import json, pathlib; root=pathlib.Path("'$DATASET'"); info=json.loads((root/"meta"/"info.json").read_text()); print("dataset:", root); print("robot_type:", info.get("robot_type")); print("fps:", info.get("fps")); print("frames:", info.get("total_frames")); print("features:", sorted(info["features"].keys())); print("state_shape:", info["features"]["observation.state"]["shape"]); print("action_shape:", info["features"]["action"]["shape"])'
+
+
+################################################################################
+# 1. PI0.5 smoke train first
+################################################################################
+
+cd $PROJECT_DIR/lerobot
+
+CUDA_VISIBLE_DEVICES=1 python src/lerobot/scripts/lerobot_train.py \
+  --dataset.repo_id=$REPO_ID \
+  --dataset.root=$DATASET \
+  --dataset.feature_names="$FEATURES" \
+  --dataset.compress_dex3_actions=auto \
+  --dataset.image_transforms.enable=true \
+  --policy.type=pi05 \
+  --policy.pretrained_path=lerobot/pi05_base \
+  --policy.compile_model=false \
+  --policy.gradient_checkpointing=true \
+  --policy.dtype=bfloat16 \
+  --policy.device=cuda \
+  --policy.push_to_hub=false \
+  --output_dir=./outputs/pi05_astribot_s1_smoke \
+  --job_name=pi05_astribot_s1_smoke \
+  --wandb.enable=false \
+  --wandb.disable_artifact=true \
+  --batch_size=2 \
+  --num_workers=0 \
+  --steps=20 \
+  --save_freq=20
+
+
+################################################################################
+# 2. PI0.5 full train
+################################################################################
+
+CUDA_VISIBLE_DEVICES=1 python src/lerobot/scripts/lerobot_train.py \
+  --dataset.repo_id=$REPO_ID \
+  --dataset.root=$DATASET \
+  --dataset.feature_names="$FEATURES" \
+  --dataset.compress_dex3_actions=auto \
+  --dataset.image_transforms.enable=true \
+  --policy.type=pi05 \
+  --policy.pretrained_path=lerobot/pi05_base \
+  --policy.compile_model=true \
+  --policy.gradient_checkpointing=true \
+  --policy.dtype=bfloat16 \
+  --policy.device=cuda \
+  --policy.push_to_hub=false \
+  --output_dir=./outputs/pi05_astribot_s1 \
+  --job_name=pi05_astribot_s1 \
+  --wandb.enable=false \
+  --wandb.disable_artifact=true \
+  --batch_size=16 \
+  --steps=24000 \
+  --save_freq=4000
+
+
+################################################################################
+# 3. Optional GR00T N1.7 smoke/full train
+################################################################################
+
+CUDA_VISIBLE_DEVICES=1 python src/lerobot/scripts/lerobot_train.py \
+  --dataset.repo_id=$REPO_ID \
+  --dataset.root=$DATASET \
+  --dataset.feature_names="$FEATURES" \
+  --dataset.compress_dex3_actions=auto \
+  --dataset.image_transforms.enable=true \
+  --policy.type=groot \
+  --policy.base_model_path=nvidia/GR00T-N1.7-3B \
+  --policy.embodiment_tag=astribot_s1 \
+  --policy.chunk_size=16 \
+  --policy.n_action_steps=16 \
+  --policy.use_relative_actions=false \
+  --policy.device=cuda \
+  --policy.use_bf16=true \
+  --policy.push_to_hub=false \
+  --output_dir=./outputs/groot_n17_astribot_s1_smoke \
+  --job_name=groot_n17_astribot_s1_smoke \
+  --wandb.enable=false \
+  --wandb.disable_artifact=true \
+  --batch_size=2 \
+  --num_workers=0 \
+  --steps=20 \
+  --save_checkpoint=true \
+  --save_freq=20 \
+  --log_freq=1 \
+  --env_eval_freq=0 \
+  --eval_steps=0
+
+CUDA_VISIBLE_DEVICES=1 python src/lerobot/scripts/lerobot_train.py \
+  --dataset.repo_id=$REPO_ID \
+  --dataset.root=$DATASET \
+  --dataset.feature_names="$FEATURES" \
+  --dataset.compress_dex3_actions=auto \
+  --dataset.image_transforms.enable=true \
+  --policy.type=groot \
+  --policy.base_model_path=nvidia/GR00T-N1.7-3B \
+  --policy.embodiment_tag=astribot_s1 \
+  --policy.chunk_size=16 \
+  --policy.n_action_steps=16 \
+  --policy.use_relative_actions=false \
+  --policy.device=cuda \
+  --policy.use_bf16=true \
+  --policy.push_to_hub=false \
+  --output_dir=./outputs/groot_n17_astribot_s1 \
+  --job_name=groot_n17_astribot_s1 \
+  --wandb.enable=false \
+  --wandb.disable_artifact=true \
+  --batch_size=16 \
+  --steps=40000 \
+  --save_checkpoint=true \
+  --save_freq=10000 \
+  --log_freq=20 \
+  --env_eval_freq=0 \
+  --eval_steps=0
+
+
+################################################################################
+# 4. Optional MolmoAct2 smoke/full train
+################################################################################
+
+CUDA_VISIBLE_DEVICES=1 python src/lerobot/scripts/lerobot_train.py \
+  --dataset.repo_id=$REPO_ID \
+  --dataset.root=$DATASET \
+  --dataset.feature_names="$FEATURES" \
+  --dataset.compress_dex3_actions=auto \
+  --dataset.image_transforms.enable=true \
+  --policy.type=molmoact2 \
+  --policy.checkpoint_path=allenai/MolmoAct2 \
+  --policy.device=cuda \
+  --policy.action_mode=continuous \
+  --policy.inference_action_mode=continuous \
+  --policy.train_action_expert_only=false \
+  --policy.enable_lora_vlm=true \
+  --policy.enable_lora_action_expert=false \
+  --policy.chunk_size=10 \
+  --policy.n_action_steps=10 \
+  --policy.setup_type="Astribot S1 whole-body joint-position control" \
+  --policy.control_mode="absolute joint pose" \
+  --policy.image_keys='["observation.images.head","observation.images.left","observation.images.right"]' \
+  --policy.model_dtype=bfloat16 \
+  --policy.num_flow_timesteps=8 \
+  --policy.gradient_checkpointing=true \
+  --policy.freeze_embedding=true \
+  --policy.normalize_gripper=false \
+  --policy.push_to_hub=false \
+  --output_dir=./outputs/molmoact2_astribot_s1_smoke \
+  --job_name=molmoact2_astribot_s1_smoke \
+  --wandb.enable=false \
+  --wandb.disable_artifact=true \
+  --batch_size=2 \
+  --num_workers=0 \
+  --steps=20 \
+  --save_checkpoint=true \
+  --save_freq=20 \
+  --log_freq=1 \
+  --env_eval_freq=0 \
+  --eval_steps=0
+
+CUDA_VISIBLE_DEVICES=1 python src/lerobot/scripts/lerobot_train.py \
+  --dataset.repo_id=$REPO_ID \
+  --dataset.root=$DATASET \
+  --dataset.feature_names="$FEATURES" \
+  --dataset.compress_dex3_actions=auto \
+  --dataset.image_transforms.enable=true \
+  --policy.type=molmoact2 \
+  --policy.checkpoint_path=allenai/MolmoAct2 \
+  --policy.device=cuda \
+  --policy.action_mode=continuous \
+  --policy.inference_action_mode=continuous \
+  --policy.train_action_expert_only=false \
+  --policy.enable_lora_vlm=true \
+  --policy.enable_lora_action_expert=false \
+  --policy.chunk_size=10 \
+  --policy.n_action_steps=10 \
+  --policy.setup_type="Astribot S1 whole-body joint-position control" \
+  --policy.control_mode="absolute joint pose" \
+  --policy.image_keys='["observation.images.head","observation.images.left","observation.images.right"]' \
+  --policy.model_dtype=bfloat16 \
+  --policy.num_flow_timesteps=8 \
+  --policy.gradient_checkpointing=true \
+  --policy.freeze_embedding=true \
+  --policy.normalize_gripper=false \
+  --policy.push_to_hub=false \
+  --output_dir=./outputs/molmoact2_astribot_s1 \
+  --job_name=molmoact2_astribot_s1 \
+  --wandb.enable=false \
+  --wandb.disable_artifact=true \
+  --batch_size=16 \
+  --steps=40000 \
+  --save_checkpoint=true \
+  --save_freq=10000 \
+  --log_freq=20 \
+  --env_eval_freq=0 \
+  --eval_steps=0
+
+
+################################################################################
+# 5. Dataset-only policy dry-run
+################################################################################
+
+cd $ROOT
+
+CUDA_VISIBLE_DEVICES=1 python astribot_lerobot/eval_robot/eval_s1.py \
+  --policy.path=./astribot_lerobot/lerobot/outputs/pi05_astribot_s1_smoke/checkpoints/last/pretrained_model \
+  --repo_id=$REPO_ID \
+  --root=$DATASET \
+  --task="$TASK" \
+  --episodes=0 \
+  --camera_features="$CAMERA_FEATURES" \
+  --arm=Astribot_S1 \
+  --ee="" \
+  --send_real_robot=false \
+  --policy_warmup_steps=3 \
+  --policy_inference_timeout_s=10
+
+
+################################################################################
+# 6. Real robot eval, conservative limits
+################################################################################
+
+cd $ROOT
+export ASTRIBOT_SDK_ROOT=$ROOT/astribot_sdk_ros2
+source $ASTRIBOT_SDK_ROOT/env.sh
+
+CUDA_VISIBLE_DEVICES=1 python astribot_lerobot/eval_robot/eval_s1.py \
+  --policy.path=./astribot_lerobot/lerobot/outputs/pi05_astribot_s1/checkpoints/last/pretrained_model \
+  --repo_id=$REPO_ID \
+  --root=$DATASET \
+  --task="$TASK" \
+  --episodes=0 \
+  --frequency=10 \
+  --arm=Astribot_S1 \
+  --ee="" \
+  --visualization=false \
+  --send_real_robot=true \
+  --use_wrist_cameras=true \
+  --camera_features="$CAMERA_FEATURES" \
+  --ready_lift_m=0 \
+  --max_policy_arm_delta=0.015 \
+  --arm_velocity_limit=0.15 \
+  --ready_arm_velocity_limit=0.15 \
+  --arm_low_level_velocity_limit=1.0 \
+  --arm_tracking_error_limit=0.35 \
+  --init_tolerance=0.12 \
+  --dataset_start_tolerance=0.12 \
+  --policy_warmup_steps=3 \
+  --real_policy_warmup_steps=1 \
+  --policy_inference_timeout_s=5 \
+  --action_log_path=eval_action_logs/pi05_astribot_s1_safe_test
