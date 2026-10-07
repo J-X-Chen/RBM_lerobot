@@ -47,6 +47,10 @@ class DatasetConfig:
     # "auto" only compresses 28D Dex3 datasets and leaves Astribot S1 25D whole-body data untouched.
     # Set to "ignore" to keep the 16D arm+grip interface while forcing both grip targets to zero.
     compress_dex3_actions: bool | str = "auto"
+    # Runtime view for Astribot S1 whole-body datasets. Set to "ignore" or
+    # "arms_grippers" to train only left/right arms plus left/right grippers
+    # from a 25D action/state dataset.
+    compress_astribot_actions: bool | str = False
     # Fraction of episodes held out per task for offline evaluation (0.0 = disabled).
     eval_split: float = 0.0
 
@@ -57,6 +61,17 @@ class DatasetConfig:
                 raise ValueError(
                     "compress_dex3_actions must be true, false, 'auto', or 'ignore', "
                     f"got {self.compress_dex3_actions!r}"
+                )
+        if isinstance(self.compress_astribot_actions, str):
+            self.compress_astribot_actions = self.compress_astribot_actions.lower()
+            if self.compress_astribot_actions in {"false", "none", "off", "no"}:
+                self.compress_astribot_actions = False
+            elif self.compress_astribot_actions in {"true", "on", "yes"}:
+                self.compress_astribot_actions = True
+            elif self.compress_astribot_actions not in {"auto", "ignore", "arms_grippers", "arm_gripper"}:
+                raise ValueError(
+                    "compress_astribot_actions must be true, false, 'auto', 'ignore', "
+                    f"or 'arms_grippers', got {self.compress_astribot_actions!r}"
                 )
         if self.depth_output_unit not in (DEPTH_METER_UNIT, DEPTH_MILLIMETER_UNIT):
             raise ValueError(

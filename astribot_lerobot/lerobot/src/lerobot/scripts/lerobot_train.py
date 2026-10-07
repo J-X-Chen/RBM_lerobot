@@ -69,6 +69,7 @@ from lerobot.optim.factory import make_optimizer_and_scheduler
 from lerobot.policies import PreTrainedPolicy, make_policy, make_pre_post_processors
 from lerobot.rewards import make_reward_pre_post_processors
 from lerobot.utils.collate import lerobot_collate_fn
+from lerobot.utils.astribot_action import enable_astribot_s1_arm_gripper_filter
 from lerobot.utils.dex3_action import enable_dex3_action_compression
 from lerobot.utils.import_utils import register_third_party_plugins
 from lerobot.utils.logging_utils import AverageMeter, MetricsTracker
@@ -346,6 +347,27 @@ def _should_compress_dex3_actions(dataset, mode: bool | str, *, log_skip: bool) 
     return should_compress
 
 
+def _should_compress_astribot_actions(dataset, mode: bool | str, *, log_skip: bool) -> bool:
+    if not mode:
+        return False
+    if mode != "auto":
+        return True
+
+    action_shape = _dataset_action_shape(dataset)
+    state_feature = getattr(getattr(dataset, "meta", None), "features", {}).get("observation.state")
+    state_shape = tuple(state_feature.get("shape", ())) if isinstance(state_feature, dict) else None
+    should_compress = action_shape == (25,) and state_shape == (25,)
+    if not should_compress and log_skip:
+        logging.info(
+            "Skipping Astribot S1 action/state filtering in auto mode "
+            "(robot_type=%r, action_shape=%r, state_shape=%r).",
+            getattr(getattr(dataset, "meta", None), "robot_type", None),
+            action_shape,
+            state_shape,
+        )
+    return should_compress
+
+
 @parser.wrap()
 def train(cfg: TrainPipelineConfig, accelerator: "Accelerator | None" = None):
     """
@@ -456,6 +478,21 @@ def train(cfg: TrainPipelineConfig, accelerator: "Accelerator | None" = None):
             eval_dataset = enable_dex3_action_compression(
                 eval_dataset, ignore_hands=ignore_dex3_hands
             )
+
+    if _should_compress_astribot_actions(
+        dataset, cfg.dataset.compress_astribot_actions, log_skip=is_main_process
+    ):
+        if cfg.dataset.streaming:
+            raise NotImplementedError(
+                "Astribot S1 action/state filtering is not supported for streaming datasets."
+            )
+        logging.info(
+            "Filtering Astribot S1 action/state vectors to 16D arms+grippers "
+            "(left arm, left gripper, right arm, right gripper)."
+        )
+        dataset = enable_astribot_s1_arm_gripper_filter(dataset)
+        if eval_dataset is not None:
+            eval_dataset = enable_astribot_s1_arm_gripper_filter(eval_dataset)
 
     # Create environment used for evaluating checkpoints during training on simulation data.
     # On real-world data, no need to create an environment as evaluations are done outside train.py,
