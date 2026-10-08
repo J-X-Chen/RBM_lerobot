@@ -44,6 +44,12 @@ from lerobot.processor import (
     PolicyAction,
     PolicyProcessorPipeline,
 )
+from lerobot.utils.astribot_action import (
+    ASTRIBOT_S1_ARM_GRIPPER_DIM,
+    ASTRIBOT_S1_FULL_DIM,
+    expand_astribot_s1_arm_gripper,
+    select_astribot_s1_arm_gripper,
+)
 from lerobot.utils.dex3_action import expand_dex3_action
 from astribot_lerobot.eval_robot.make_robot import (
     setup_image_client,
@@ -3749,6 +3755,10 @@ def warmup_policy_from_dataset(
     step = dataset[_first_eval_dataset_index(dataset)]
     observation = extract_observation(step)
     observation = ensure_runtime_thermal_input(cfg, observation, runtime_thermal_input_adapter)
+    observation = _adapt_astribot_observation_for_policy(
+        observation,
+        use_arm_gripper_view=_policy_uses_astribot_arm_gripper_view(cfg, ASTRIBOT_S1_FULL_DIM),
+    )
     task = resolve_eval_task(cfg, step)
 
     logger_mp.info(f"Warming up policy for {warmup_steps} step(s) before connecting to robot.")
@@ -3790,6 +3800,33 @@ def _dataset_action_dim(step: dict[str, Any]) -> int | None:
     if action.size == 0:
         return None
     return int(action.reshape(-1).shape[0])
+
+
+def _is_astribot_s1_whole_body(cfg: EvalRealConfig, arm_dof: int) -> bool:
+    return str(getattr(cfg, "arm", "")).lower() == "astribot_s1" and int(arm_dof) == ASTRIBOT_S1_FULL_DIM
+
+
+def _policy_uses_astribot_arm_gripper_view(cfg: EvalRealConfig, arm_dof: int) -> bool:
+    state_dim = _policy_feature_dim(getattr(cfg.policy, "input_features", None), "observation.state")
+    action_dim = _policy_feature_dim(getattr(cfg.policy, "output_features", None), "action")
+    return (
+        _is_astribot_s1_whole_body(cfg, arm_dof)
+        and state_dim == ASTRIBOT_S1_ARM_GRIPPER_DIM
+        and action_dim == ASTRIBOT_S1_ARM_GRIPPER_DIM
+    )
+
+
+def _adapt_astribot_observation_for_policy(
+    observation: dict[str, Any], *, use_arm_gripper_view: bool
+) -> dict[str, Any]:
+    if not use_arm_gripper_view or "observation.state" not in observation:
+        return observation
+    observation = dict(observation)
+    state = observation["observation.state"]
+    if getattr(state, "shape", None) is not None and state.shape[-1] == ASTRIBOT_S1_ARM_GRIPPER_DIM:
+        return observation
+    observation["observation.state"] = select_astribot_s1_arm_gripper(state)
+    return observation
 
 
 def _first_eval_dataset_index(dataset: LeRobotDataset) -> int:
@@ -3895,6 +3932,10 @@ def run_policy_dataset_dry_run(
         observation = extract_observation(step)
         observation = filter_observation_camera_features(cfg, observation)
         observation = ensure_runtime_thermal_input(cfg, observation, runtime_thermal_input_adapter)
+        observation = _adapt_astribot_observation_for_policy(
+            observation,
+            use_arm_gripper_view=_policy_uses_astribot_arm_gripper_view(cfg, ASTRIBOT_S1_FULL_DIM),
+        )
         validate_real_observation_keys(cfg, observation, f"Dry-run dataset step {step_idx}")
         task = resolve_eval_task(cfg, step)
 
@@ -3971,6 +4012,7 @@ def warmup_policy_from_real_observation(
         return
 
     logger_mp.info(f"Warming up policy for {warmup_steps} real-observation step(s); actions will be discarded.")
+    use_astribot_arm_gripper_view = _policy_uses_astribot_arm_gripper_view(cfg, arm_dof)
     start_time = time.perf_counter()
     for warmup_idx in range(warmup_steps):
         observation, current_arm_q = process_images_and_observations(
@@ -3997,6 +4039,10 @@ def warmup_policy_from_real_observation(
         observation["observation.state"] = torch.from_numpy(
             np.concatenate((current_arm_q, left_ee_state, right_ee_state), axis=0)
         ).float()
+        observation = _adapt_astribot_observation_for_policy(
+            observation,
+            use_arm_gripper_view=use_astribot_arm_gripper_view,
+        )
         validate_real_observation_keys(cfg, observation, "Real-observation warmup")
 
         capture_attention_map = (
@@ -4164,20 +4210,38 @@ def eval_policy(
         supports_compressed_dex3_action = cfg.ee == "dex3" and ee_dof == 7
         policy_state_dim = _policy_feature_dim(getattr(cfg.policy, "input_features", None), "observation.state")
         policy_action_dim = _policy_feature_dim(getattr(cfg.policy, "output_features", None), "action")
+        supports_astribot_arm_gripper_policy = _is_astribot_s1_whole_body(cfg, arm_dof) and not cfg.ee
+        uses_astribot_arm_gripper_policy = (
+            supports_astribot_arm_gripper_policy
+            and policy_state_dim == ASTRIBOT_S1_ARM_GRIPPER_DIM
+            and policy_action_dim == ASTRIBOT_S1_ARM_GRIPPER_DIM
+        )
+        if supports_astribot_arm_gripper_policy and (
+            policy_state_dim == ASTRIBOT_S1_ARM_GRIPPER_DIM
+            or policy_action_dim == ASTRIBOT_S1_ARM_GRIPPER_DIM
+        ) and not uses_astribot_arm_gripper_policy:
+            raise RuntimeError(
+                "Astribot S1 arm/gripper checkpoints must use 16D for both observation.state and action. "
+                f"Got policy state dim {policy_state_dim}, action dim {policy_action_dim}."
+            )
         logger_mp.info(
             f"Policy dimension check: expected real-robot state/action dim {expected_policy_dim}; "
             f"policy state dim {policy_state_dim}; policy action dim {policy_action_dim}."
         )
-        if policy_state_dim is not None and policy_state_dim != expected_policy_dim:
+        valid_policy_state_dims = {expected_policy_dim}
+        if supports_astribot_arm_gripper_policy:
+            valid_policy_state_dims.add(ASTRIBOT_S1_ARM_GRIPPER_DIM)
+        if policy_state_dim is not None and policy_state_dim not in valid_policy_state_dims:
             raise RuntimeError(
                 "Policy observation.state dimension does not match enabled robot interfaces: "
                 f"policy expects {policy_state_dim}, but arm={arm_dof}, ee='{cfg.ee}' gives "
-                f"{expected_policy_dim}. Use --ee=dex3 for a 28D hand policy, or an arm-only checkpoint "
-                "for --ee=''."
+                f"valid dimensions {sorted(valid_policy_state_dims)}."
             )
         valid_policy_action_dims = {expected_policy_dim}
         if supports_compressed_dex3_action:
             valid_policy_action_dims.add(compressed_dex3_action_dim)
+        if supports_astribot_arm_gripper_policy:
+            valid_policy_action_dims.add(ASTRIBOT_S1_ARM_GRIPPER_DIM)
         if policy_action_dim is not None and policy_action_dim not in valid_policy_action_dims:
             raise RuntimeError(
                 "Policy action dimension does not match enabled robot interfaces: "
@@ -4188,6 +4252,12 @@ def eval_policy(
             logger_mp.info(
                 "Using compressed Dex3 policy actions: expanding the two grip scalars "
                 "to fixed left/right 7-DoF grasp targets before robot control."
+            )
+        if uses_astribot_arm_gripper_policy:
+            logger_mp.info(
+                "Using Astribot S1 16D arm+gripper policy view: policy observation.state is filtered "
+                "to left/right arms and grippers; policy actions are expanded back to 25D whole-body "
+                "commands with chassis, torso, and head held at current values."
             )
         if str(getattr(cfg.policy, "type", "")).lower() == "groot":
             logger_mp.info(
@@ -4640,6 +4710,10 @@ def eval_policy(
                 np.concatenate((current_arm_q, left_ee_state, right_ee_state), axis=0)
             ).float()
             observation["observation.state"] = state_tensor
+            observation = _adapt_astribot_observation_for_policy(
+                observation,
+                use_arm_gripper_view=uses_astribot_arm_gripper_policy,
+            )
             validate_real_observation_keys(cfg, observation, "Policy step observation")
             if key_listener.shutdown_requested:
                 logger_mp.info("q pressed; stopping before manual snapshot or policy inference.")
@@ -4751,6 +4825,10 @@ def eval_policy(
             if supports_compressed_dex3_action and policy_action_np.shape[0] == compressed_dex3_action_dim:
                 compressed_dex3_action_np = policy_action_np.copy()
                 policy_action_np = expand_dex3_action(policy_action_np, arm_dof=arm_dof)
+            astribot_arm_gripper_action_np = None
+            if uses_astribot_arm_gripper_policy and policy_action_np.shape[0] == ASTRIBOT_S1_ARM_GRIPPER_DIM:
+                astribot_arm_gripper_action_np = policy_action_np.copy()
+                policy_action_np = expand_astribot_s1_arm_gripper(policy_action_np, current_arm_q)
             raw_action_np = require_finite_vector("policy action", policy_action_np, expected_policy_dim)
             action_np = raw_action_np.copy()
             # 3. Execute Action
@@ -4898,6 +4976,14 @@ def eval_policy(
                             "raw_compressed_dex3_action": _json_array(compressed_dex3_action_np),
                             "raw_compressed_dex3_left_grip": float(compressed_dex3_action_np[arm_dof]),
                             "raw_compressed_dex3_right_grip": float(compressed_dex3_action_np[arm_dof + 1]),
+                        }
+                    )
+                if astribot_arm_gripper_action_np is not None:
+                    record.update(
+                        {
+                            "raw_astribot_arm_gripper_action": _json_array(astribot_arm_gripper_action_np),
+                            "raw_astribot_left_gripper": float(astribot_arm_gripper_action_np[7]),
+                            "raw_astribot_right_gripper": float(astribot_arm_gripper_action_np[15]),
                         }
                     )
                 if cfg.ee:

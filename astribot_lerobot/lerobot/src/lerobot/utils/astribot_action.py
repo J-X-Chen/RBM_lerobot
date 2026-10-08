@@ -33,6 +33,30 @@ def select_astribot_s1_arm_gripper(value: ArrayLike) -> ArrayLike:
     return value[..., list(ASTRIBOT_S1_ARM_GRIPPER_INDICES)]
 
 
+def expand_astribot_s1_arm_gripper(value: ArrayLike, full_reference: ArrayLike) -> ArrayLike:
+    """Insert a 16D arms+grippers vector into a 25D whole-body reference pose."""
+    if value.shape[-1] != ASTRIBOT_S1_ARM_GRIPPER_DIM:
+        raise ValueError(
+            f"Expected a {ASTRIBOT_S1_ARM_GRIPPER_DIM}D Astribot S1 arm/gripper vector, "
+            f"got shape {tuple(value.shape)}."
+        )
+    if full_reference.shape[-1] != ASTRIBOT_S1_FULL_DIM:
+        raise ValueError(
+            f"Expected a {ASTRIBOT_S1_FULL_DIM}D Astribot S1 reference vector, "
+            f"got shape {tuple(full_reference.shape)}."
+        )
+
+    if isinstance(full_reference, torch.Tensor):
+        expanded = full_reference.clone()
+        indices = torch.as_tensor(ASTRIBOT_S1_ARM_GRIPPER_INDICES, device=expanded.device)
+        expanded.index_copy_(-1, indices, value.to(device=expanded.device, dtype=expanded.dtype))
+        return expanded
+
+    expanded = np.array(full_reference, copy=True)
+    expanded[..., list(ASTRIBOT_S1_ARM_GRIPPER_INDICES)] = np.asarray(value, dtype=expanded.dtype)
+    return expanded
+
+
 def _slice_names(names):
     if not isinstance(names, list):
         return names
