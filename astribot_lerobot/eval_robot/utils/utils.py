@@ -109,21 +109,19 @@ def _postprocessor_action_dim(
     return None
 
 
-def _maybe_trim_dex3_action_for_postprocessor(
+def _maybe_trim_action_for_postprocessor(
     action: PolicyAction,
     postprocessor: PolicyProcessorPipeline[PolicyAction, PolicyAction],
     robot_type: str | None,
 ) -> PolicyAction:
-    """Adapt padded PI0.5 outputs to checkpoints trained with compressed Dex3 grip scalars.
+    """Trim padded or metadata-expanded policy outputs to the postprocessor action width.
 
-    Legacy Dex3 PI0.5 runs could be trained with ``--dataset.compress_dex3_actions=true``:
-    the policy/postprocessor action stats are arm_dof + 2, while real Dex3 state/action space is
-    arm_dof + 14.  Some migrated PI0.5 checkpoints can still expose the internal padded action
-    width before unnormalization.  Keep the trained arm+left_grip+right_grip prefix before the
-    postprocessor; eval_s1.py expands the unnormalized arm+2-grip action back to full Dex3
-    commands before sending to the robot.
+    PI0.5 can expose the policy config's runtime action width before unnormalization even when
+    the loaded checkpoint postprocessor was trained with a smaller action vector. Keep the
+    trained prefix before the postprocessor; eval_s1.py expands compressed robot-specific action
+    views back to the real robot command space before sending commands.
     """
-    if str(robot_type or "").lower() != "dex3" or not hasattr(action, "shape") or action.ndim == 0:
+    if not hasattr(action, "shape") or action.ndim == 0:
         return action
 
     expected_dim = _postprocessor_action_dim(postprocessor)
@@ -135,12 +133,14 @@ def _maybe_trim_dex3_action_for_postprocessor(
         return action
 
     trimmed = action[..., :expected_dim]
-    if not getattr(postprocessor, "_legacy_logged_dex3_auto_trim", False):
+    if not getattr(postprocessor, "_legacy_logged_action_auto_trim", False):
+        robot_label = str(robot_type or "").strip()
+        detail = "compressed Dex3 " if robot_label.lower() == "dex3" else ""
         logger_mp.info(
-            "Detected compressed Dex3 action postprocessor: trimming raw policy action "
+            f"Detected {detail}action postprocessor width {expected_dim}: trimming raw policy action "
             f"{tuple(action.shape)} -> {tuple(trimmed.shape)} before unnormalization."
         )
-        setattr(postprocessor, "_legacy_logged_dex3_auto_trim", True)
+        setattr(postprocessor, "_legacy_logged_action_auto_trim", True)
     return trimmed
 
 
@@ -239,7 +239,7 @@ def predict_action(
         else:
             try:
                 action = policy.select_action(observation)
-                action = _maybe_trim_dex3_action_for_postprocessor(action, postprocessor, robot_type)
+                action = _maybe_trim_action_for_postprocessor(action, postprocessor, robot_type)
                 action = postprocessor(action)
             finally:
                 setattr(policy, "_eval_capture_attention_map", previous_capture_attention_map)
@@ -329,6 +329,7 @@ class EvalRealConfig:
     max_policy_arm_delta: float = 0.080
     max_policy_ee_delta: float = 10.0
     limit_policy_delta_from_last_command: bool = True
+    astribot_policy_smooth_alpha: float = 0.0
     ee_tracking_tolerance: float = 5.0
     abort_on_ee_tracking_error: bool = False
     require_head_camera_on_r: bool = True
@@ -352,6 +353,20 @@ class EvalRealConfig:
     head_camera_zmq_port: int = 55555
     left_wrist_camera_zmq_port: int = 55556
     right_wrist_camera_zmq_port: int = 55557
+    astribot_sdk_root: str = ""
+    astribot_sdk_freq: float = 250.0
+    astribot_high_control_rights: bool = False
+    astribot_control_transport: str = "local"
+    astribot_control_server_address: str = ""
+    astribot_control_port: int = 6200
+    astribot_control_timeout_s: float = 5.0
+    astribot_control_reconnect: bool = True
+    astribot_remote_interpolation_steps: int = 1
+    astribot_control_way: str = "direct"
+    astribot_use_wbc: bool = False
+    astribot_add_default_torso: bool = False
+    astribot_node_name: str = "eval_astribot_s1"
+    astribot_gripper_node_name: str = "eval_astribot_s1_gripper"
     init_ee_velocity_limit: float = 25.0
     shutdown_ee_open_velocity_limit: float = 50.0
     policy_warmup_steps: int = 1

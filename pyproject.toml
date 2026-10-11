@@ -18,12 +18,16 @@ dependencies = [
     "tyro>=0.9.10",
     "matplotlib>=3.9.0",
     "meshcat==0.3.2",
-    "logging_mp"
+    "logging_mp",
+    "pyzmq"
 ]
 
 [tool.setuptools.packages.find]
-include = ["astribot_lerobot*"]
+include = ["astribot_lerobot*", "astribot_image_service*"]
 namespaces = true
+
+[project.optional-dependencies]
+viewer = ["opencv-python"]
 
 [tool.ruff]
 line-length = 120

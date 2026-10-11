@@ -20,7 +20,7 @@ import cv2
 import numpy as np
 import pinocchio as pin
 from pprint import pformat
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from torch import nn
 from contextlib import nullcontext
@@ -59,6 +59,7 @@ from astribot_lerobot.eval_robot.eval_s1 import (
     _selected_camera_feature_names,
     _thermal_input_type,
     configure_policy_for_thermal_input_type,
+    config_dict_for_log,
     ensure_runtime_thermal_input,
     filter_observation_camera_features,
     make_runtime_thermal_input_adapter,
@@ -1809,7 +1810,7 @@ def eval_main(cfg: EvalRealAsyncConfig):
 
     configure_policy_for_thermal_input_type(cfg)
     validate_thermal_input_selection(cfg)
-    logging.info(pformat(asdict(cfg)))
+    logging.info(pformat(config_dict_for_log(cfg)))
 
     # Check device is available
     device = get_safe_torch_device(cfg.policy.device, log=True)

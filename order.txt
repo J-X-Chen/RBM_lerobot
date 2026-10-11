@@ -237,34 +237,104 @@ CUDA_VISIBLE_DEVICES=1 python astribot_lerobot/eval_robot/eval_s1.py \
 
 
 ################################################################################
-# 6. Real robot eval, conservative limits
+# 6. Start Astribot S1 image bridge, keep this terminal running
+################################################################################
+
+# From the workstation, copy S1-side code/SDK to Orin with same-name replacement:
+#   python send_code_to_S1.py ./astribot_image_service 192.168.0.11 /home/jchen572/code_file/astribot_service
+#   python send_code_to_S1.py ./astribot_sdk_aarch64 192.168.0.11 /home/jchen572/code_file/astribot_service
+
+cd $ROOT
+# On S1/Orin, use the native aarch64 SDK. Do not copy the workstation/x86
+# astribot_sdk_ros2 directory to the robot. If your SDK lives elsewhere, set
+# ASTRIBOT_SDK_ROOT before this block.
+# The aarch64 SDK native extensions are built against NumPy 1.x. Keep Python
+# 3.10 on S1, but make sure this environment has the SDK deps:
+#   sudo apt install -y ros-humble-tf-transformations
+#   python -m pip uninstall -y meta
+#   python -m pip install "numpy==1.24.0" filterpy transforms3d tabulate h5py opencv-python==4.10.0.82
+conda activate teleimage
+export ASTRIBOT_SDK_ROOT=./astribot_sdk_aarch64
+export ASTRIBOT_LOG=1
+source /opt/ros/humble/setup.bash
+source "$ASTRIBOT_SDK_ROOT/env.sh"
+
+python -m astribot_image_service.server \
+  --sdk-root "$ASTRIBOT_SDK_ROOT" \
+  --bind-host 0.0.0.0 \
+  --head-port=55555 \
+  --left-wrist-port=55556 \
+  --right-wrist-port=55557 \
+  --high-control-rights \
+  --enable-control \
+  --execute-control \
+  --control-bind-host=0.0.0.0 \
+  --control-port=6200 \
+  --control-frequency=250 \
+  --control-action-frequency=30 \
+  --control-way=filter
+
+# Optional preview: open another terminal after the image bridge is running.
+# If cv2 is missing, install the viewer extra: pip install -e ".[viewer]"
+cd $ROOT
+python -m astribot_image_service.client \
+  --host 127.0.0.1 \
+  --head-port=55555 \
+  --left-wrist-port=55556 \
+  --right-wrist-port=55557
+
+
+################################################################################
+# 7. Real robot eval, G1-matched protection defaults
 ################################################################################
 
 cd $ROOT
-export ASTRIBOT_SDK_ROOT=$ROOT/astribot_sdk_ros2
-source $ASTRIBOT_SDK_ROOT/env.sh
 
+# Run after section 6 is publishing images. In the eval terminal:
+#   r: move S1 torso/arms/grippers/head to the dataset first frame, keeping chassis at the captured pose
+#   s: start policy from that first-frame pose
+#   q: stop and return S1 to the captured pre-r pose
 CUDA_VISIBLE_DEVICES=1 python astribot_lerobot/eval_robot/eval_s1.py \
-  --policy.path=./astribot_lerobot/lerobot/outputs/pi05_astribot_s1/checkpoints/last/pretrained_model \
-  --repo_id=$REPO_ID \
-  --root=$DATASET \
-  --task="$TASK" \
+  --policy.path=/home/jchen572/code_file/RBM_lerobot/cjx_checkpoints/101p_s1_pi05 \
+  --repo_id=local/cup_selection_s1_action \
+  --root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/cup_selection_s1_action \
+  --task="Select the blue cup and place it on the black coaster" \
   --episodes=0 \
-  --frequency=10 \
+  --frequency=30 \
   --arm=Astribot_S1 \
   --ee="" \
   --visualization=false \
   --send_real_robot=true \
+  --image_transport=teleimager \
+  --image_server_address=192.168.0.11 \
+  --head_camera_zmq_port=55555 \
+  --left_wrist_camera_zmq_port=55556 \
+  --right_wrist_camera_zmq_port=55557 \
+  --head_camera_image_height=720 \
+  --head_camera_image_width=1280 \
+  --wrist_camera_image_height=360 \
+  --wrist_camera_image_width=640 \
   --use_wrist_cameras=true \
-  --camera_features="$CAMERA_FEATURES" \
+  --camera_features='["observation.images.head","observation.images.left","observation.images.right"]'  \
+  --astribot_control_transport=remote \
+  --astribot_control_server_address=192.168.0.11 \
+  --astribot_control_port=6200 \
+  --astribot_control_timeout_s=5 \
+  --astribot_remote_interpolation_steps=4 \
+  --astribot_control_way=filter \
+  --astribot_use_wbc=false \
+  --astribot_policy_smooth_alpha=0.9 \
   --ready_lift_m=0 \
-  --max_policy_arm_delta=0.015 \
-  --arm_velocity_limit=0.15 \
-  --ready_arm_velocity_limit=0.15 \
-  --arm_low_level_velocity_limit=1.0 \
+  --max_policy_arm_delta=0.080 \
+  --max_policy_ee_delta=10.0 \
+  --arm_velocity_limit=0.25 \
+  --ready_arm_velocity_limit=0.25 \
+  --arm_low_level_velocity_limit=8.0 \
   --arm_tracking_error_limit=0.35 \
-  --init_tolerance=0.12 \
-  --dataset_start_tolerance=0.12 \
+  --init_ee_velocity_limit=25.0 \
+  --ee_tracking_tolerance=5.0 \
+  --init_tolerance=0.03 \
+  --dataset_start_tolerance=0.08 \
   --policy_warmup_steps=3 \
   --real_policy_warmup_steps=1 \
   --policy_inference_timeout_s=5 \

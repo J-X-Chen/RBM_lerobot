@@ -30,5 +30,8 @@ pretrained_checkpoints
 docs/pi05*
 
 astribot_sdk_ros2
+astribot_sdk_aarch64
+
+Add
 
 run_*.sh

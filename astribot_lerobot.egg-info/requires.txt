@@ -1,0 +1,8 @@
+tyro>=0.9.10
+matplotlib>=3.9.0
+meshcat==0.3.2
+logging_mp
+pyzmq
+
+[viewer]
+opencv-python

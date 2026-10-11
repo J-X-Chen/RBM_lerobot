@@ -10,6 +10,7 @@ from astribot_lerobot.eval_robot.image_server.image_client import ImageClient, T
 from astribot_lerobot.eval_robot.robot_control.robot_arm_astribot import (
     AstribotS1ArmController,
     AstribotS1ArmIK,
+    AstribotS1RemoteArmController,
     AstribotS1GripperController,
 )
 
@@ -217,14 +218,52 @@ def setup_robot_interface(args: argparse.Namespace) -> dict[str, Any]:
         raise NotImplementedError("Astribot_S1 evaluation uses astribot_sdk_ros2 and does not support --sim.")
 
     arm_ik = arm_spec["ik_solver"]()
-    arm_ctrl = arm_spec["controller"](
-        motion_mode=args.motion,
-        simulation_mode=is_sim,
-        arm_velocity_limit=getattr(args, "arm_low_level_velocity_limit", None),
-    )
+    astribot_control_transport = str(getattr(args, "astribot_control_transport", "local")).strip().lower()
+    if astribot_control_transport in {"remote", "tcp", "s1", "s1_bridge"}:
+        control_host = (
+            str(getattr(args, "astribot_control_server_address", "") or "").strip()
+            or str(getattr(args, "image_server_address", "127.0.0.1"))
+        )
+        logger_mp.info(
+            "Astribot S1 control transport: remote TCP at %s:%d. "
+            "SDK control is expected to run inside astribot_image_service.server on S1.",
+            control_host,
+            int(getattr(args, "astribot_control_port", 6200)),
+        )
+        arm_ctrl = AstribotS1RemoteArmController(
+            host=control_host,
+            port=int(getattr(args, "astribot_control_port", 6200)),
+            timeout_s=float(getattr(args, "astribot_control_timeout_s", 5.0)),
+            arm_velocity_limit=getattr(args, "arm_low_level_velocity_limit", None),
+            reconnect=bool(getattr(args, "astribot_control_reconnect", True)),
+            remote_interpolation_steps=int(getattr(args, "astribot_remote_interpolation_steps", 1)),
+        )
+    elif astribot_control_transport in {"local", "sdk", ""}:
+        arm_ctrl = arm_spec["controller"](
+            motion_mode=args.motion,
+            simulation_mode=is_sim,
+            arm_velocity_limit=getattr(args, "arm_low_level_velocity_limit", None),
+            sdk_root=getattr(args, "astribot_sdk_root", "") or None,
+            high_control_rights=bool(getattr(args, "astribot_high_control_rights", False)),
+            control_way=str(getattr(args, "astribot_control_way", "direct")),
+            use_wbc=bool(getattr(args, "astribot_use_wbc", False)),
+            add_default_torso=bool(getattr(args, "astribot_add_default_torso", False)),
+            fps=float(getattr(args, "astribot_sdk_freq", 250.0)),
+            node_name=str(getattr(args, "astribot_node_name", "eval_astribot_s1")),
+        )
+    else:
+        raise ValueError(
+            "Unknown astribot_control_transport "
+            f"{astribot_control_transport!r}. Use 'local' or 'remote'."
+        )
 
     ee_ctrl, ee_shared_mem, ee_dof = None, {}, 0
     if ee_key := getattr(args, "ee", "").lower():
+        if astribot_control_transport in {"remote", "tcp", "s1", "s1_bridge"}:
+            raise ValueError(
+                "Remote Astribot S1 control expects embedded grippers in the 25D action. "
+                "Use --ee='' with --astribot_control_transport=remote."
+            )
         if ee_key not in EE_CONFIG:
             raise ValueError(f"Unknown end-effector '{args.ee}'. Available: {list(EE_CONFIG.keys())}")
 
@@ -241,7 +280,18 @@ def setup_robot_interface(args: argparse.Namespace) -> dict[str, Any]:
         )
         state_arr, action_arr = Array("d", out_len, lock=False), Array("d", out_len, lock=False)
 
-        ee_ctrl = spec["controller"](left_in, right_in, data_lock, state_arr, action_arr, simulation_mode=is_sim)
+        ee_ctrl = spec["controller"](
+            left_in,
+            right_in,
+            data_lock,
+            state_arr,
+            action_arr,
+            simulation_mode=is_sim,
+            sdk_root=getattr(args, "astribot_sdk_root", "") or None,
+            high_control_rights=bool(getattr(args, "astribot_high_control_rights", False)),
+            node_name=str(getattr(args, "astribot_gripper_node_name", "eval_astribot_s1_gripper")),
+            control_way=str(getattr(args, "astribot_control_way", "direct")),
+        )
         ee_shared_mem = {
             "left": left_in,
             "right": right_in,

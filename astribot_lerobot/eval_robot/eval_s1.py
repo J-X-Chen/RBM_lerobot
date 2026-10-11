@@ -81,6 +81,16 @@ logging_mp.basic_config(level=logging_mp.INFO)
 logger_mp = logging_mp.get_logger(__name__)
 
 
+ASTRIBOT_S1_CHASSIS_SLICE = slice(0, 3)
+ASTRIBOT_S1_TORSO_SLICE = slice(3, 7)
+ASTRIBOT_S1_LEFT_ARM_SLICE = slice(7, 14)
+ASTRIBOT_S1_LEFT_GRIPPER_SLICE = slice(14, 15)
+ASTRIBOT_S1_RIGHT_ARM_SLICE = slice(15, 22)
+ASTRIBOT_S1_RIGHT_GRIPPER_SLICE = slice(22, 23)
+ASTRIBOT_S1_HEAD_SLICE = slice(23, 25)
+ASTRIBOT_S1_GRIPPER_INDICES = (14, 22)
+
+
 def require_rerun_visualization():
     if RerunLogger is None or visualization_data is None:
         raise ImportError(
@@ -243,11 +253,139 @@ def _json_array(values, precision: int = 6) -> list[float]:
     return np.round(np.asarray(values, dtype=np.float64), precision).tolist()
 
 
+def _json_scalar_int(value) -> int | None:
+    if value is None:
+        return None
+    if hasattr(value, "detach"):
+        value = value.detach().cpu().numpy()
+    arr = np.asarray(value)
+    if arr.size == 0:
+        return None
+    return int(arr.reshape(-1)[0])
+
+
 def _max_abs(values) -> float:
     values = np.asarray(values, dtype=np.float64)
     if values.size == 0:
         return 0.0
     return float(np.max(np.abs(values)))
+
+
+def _controlled_arm_delta(cfg: EvalRealConfig, delta: np.ndarray) -> np.ndarray:
+    delta = np.asarray(delta, dtype=np.float64)
+    if str(getattr(cfg, "arm", "")).lower() == "astribot_s1" and delta.shape[0] == ASTRIBOT_S1_FULL_DIM:
+        delta = delta.copy()
+        delta[ASTRIBOT_S1_CHASSIS_SLICE] = 0.0
+    return delta
+
+
+def _tracking_arm_delta(cfg: EvalRealConfig, delta: np.ndarray) -> np.ndarray:
+    delta = _controlled_arm_delta(cfg, delta)
+    if str(getattr(cfg, "arm", "")).lower() == "astribot_s1" and delta.shape[0] == ASTRIBOT_S1_FULL_DIM:
+        delta = delta.copy()
+        delta[list(ASTRIBOT_S1_GRIPPER_INDICES)] = 0.0
+    return delta
+
+
+def _embedded_gripper_delta(cfg: EvalRealConfig, delta: np.ndarray) -> np.ndarray:
+    delta = np.asarray(delta, dtype=np.float64)
+    if str(getattr(cfg, "arm", "")).lower() == "astribot_s1" and delta.shape[0] == ASTRIBOT_S1_FULL_DIM:
+        return delta[list(ASTRIBOT_S1_GRIPPER_INDICES)]
+    return np.array([], dtype=np.float64)
+
+
+def _clip_s1_embedded_grippers(
+    cfg: EvalRealConfig,
+    raw_arm_action: np.ndarray,
+    current_arm_q: np.ndarray,
+    prev_sent_action_np: np.ndarray | None,
+    arm_dof: int,
+) -> np.ndarray:
+    gripper_action = raw_arm_action[list(ASTRIBOT_S1_GRIPPER_INDICES)].copy()
+    if cfg.max_policy_ee_delta > 0:
+        ee_delta_limit = float(cfg.max_policy_ee_delta)
+        current_gripper = current_arm_q[list(ASTRIBOT_S1_GRIPPER_INDICES)]
+        gripper_action = current_gripper + np.clip(
+            gripper_action - current_gripper,
+            -ee_delta_limit,
+            ee_delta_limit,
+        )
+        if (
+            cfg.limit_policy_delta_from_last_command
+            and prev_sent_action_np is not None
+            and prev_sent_action_np.shape[0] >= arm_dof
+        ):
+            prev_gripper = prev_sent_action_np[:arm_dof][list(ASTRIBOT_S1_GRIPPER_INDICES)]
+            gripper_action = prev_gripper + np.clip(
+                gripper_action - prev_gripper,
+                -ee_delta_limit,
+                ee_delta_limit,
+            )
+            gripper_action = current_gripper + np.clip(
+                gripper_action - current_gripper,
+                -ee_delta_limit,
+                ee_delta_limit,
+            )
+    return np.clip(gripper_action, 0.0, 100.0)
+
+
+def _smooth_s1_upper_body_action(
+    cfg: EvalRealConfig,
+    arm_action: np.ndarray,
+    current_arm_q: np.ndarray,
+    prev_sent_action_np: np.ndarray | None,
+    arm_dof: int,
+) -> np.ndarray:
+    alpha = float(getattr(cfg, "astribot_policy_smooth_alpha", 0.0))
+    if alpha <= 0.0 or alpha >= 1.0 or prev_sent_action_np is None or prev_sent_action_np.shape[0] < arm_dof:
+        return arm_action
+    if arm_dof != ASTRIBOT_S1_FULL_DIM:
+        return arm_action
+
+    alpha = float(np.clip(alpha, 0.0, 1.0))
+    prev_arm_action = prev_sent_action_np[:arm_dof]
+    smoothed = arm_action.copy()
+    smoothed[ASTRIBOT_S1_TORSO_SLICE] = (
+        (1.0 - alpha) * prev_arm_action[ASTRIBOT_S1_TORSO_SLICE]
+        + alpha * arm_action[ASTRIBOT_S1_TORSO_SLICE]
+    )
+    smoothed[ASTRIBOT_S1_LEFT_ARM_SLICE] = (
+        (1.0 - alpha) * prev_arm_action[ASTRIBOT_S1_LEFT_ARM_SLICE]
+        + alpha * arm_action[ASTRIBOT_S1_LEFT_ARM_SLICE]
+    )
+    smoothed[ASTRIBOT_S1_RIGHT_ARM_SLICE] = (
+        (1.0 - alpha) * prev_arm_action[ASTRIBOT_S1_RIGHT_ARM_SLICE]
+        + alpha * arm_action[ASTRIBOT_S1_RIGHT_ARM_SLICE]
+    )
+    smoothed[ASTRIBOT_S1_HEAD_SLICE] = (
+        (1.0 - alpha) * prev_arm_action[ASTRIBOT_S1_HEAD_SLICE]
+        + alpha * arm_action[ASTRIBOT_S1_HEAD_SLICE]
+    )
+    if cfg.max_policy_arm_delta > 0:
+        arm_delta_limit = float(cfg.max_policy_arm_delta)
+        for joint_slice in (
+            ASTRIBOT_S1_TORSO_SLICE,
+            ASTRIBOT_S1_LEFT_ARM_SLICE,
+            ASTRIBOT_S1_RIGHT_ARM_SLICE,
+            ASTRIBOT_S1_HEAD_SLICE,
+        ):
+            smoothed[joint_slice] = current_arm_q[joint_slice] + np.clip(
+                smoothed[joint_slice] - current_arm_q[joint_slice],
+                -arm_delta_limit,
+                arm_delta_limit,
+            )
+            if cfg.limit_policy_delta_from_last_command:
+                smoothed[joint_slice] = prev_arm_action[joint_slice] + np.clip(
+                    smoothed[joint_slice] - prev_arm_action[joint_slice],
+                    -arm_delta_limit,
+                    arm_delta_limit,
+                )
+                smoothed[joint_slice] = current_arm_q[joint_slice] + np.clip(
+                    smoothed[joint_slice] - current_arm_q[joint_slice],
+                    -arm_delta_limit,
+                    arm_delta_limit,
+                )
+    return smoothed
 
 
 def _argmax_abs(values) -> int | None:
@@ -1600,6 +1738,43 @@ def _thermal_input_type(cfg: EvalRealConfig) -> str:
                 break
     setattr(cfg, "thermal_input_type", thermal_input_type)
     return thermal_input_type
+
+
+_INACTIVE_THERMAL_LOG_KEY_PARTS = (
+    "thermal",
+    "twogrey",
+    "anythermal",
+    "resthermal",
+    "rgb_thermal",
+    "gateresvit",
+    "gatevit",
+    "matching",
+)
+
+
+def _drop_inactive_thermal_log_fields(value: Any) -> Any:
+    if isinstance(value, dict):
+        result = {}
+        for key, item in value.items():
+            key_text = str(key).lower()
+            if any(part in key_text for part in _INACTIVE_THERMAL_LOG_KEY_PARTS):
+                continue
+            result[key] = _drop_inactive_thermal_log_fields(item)
+        return result
+    if isinstance(value, list):
+        return [_drop_inactive_thermal_log_fields(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_drop_inactive_thermal_log_fields(item) for item in value)
+    return value
+
+
+def config_dict_for_log(cfg: EvalRealConfig) -> dict[str, Any]:
+    cfg_dict = asdict(cfg)
+    if _thermal_input_type(cfg) == "false":
+        cfg_dict = _drop_inactive_thermal_log_fields(cfg_dict)
+        cfg_dict["image_input_mode"] = "false"
+        cfg_dict["inactive_thermal_fields_omitted_from_log"] = True
+    return cfg_dict
 
 
 def _policy_is_pi05(cfg: EvalRealConfig) -> bool:
@@ -3392,6 +3567,79 @@ def _policy_feature_dim(features: dict[str, Any] | None, name: str) -> int | Non
     return int(shape[-1])
 
 
+def _value_last_dim(value: Any) -> int | None:
+    shape = getattr(value, "shape", None)
+    if shape is None and isinstance(value, (list, tuple)):
+        try:
+            shape = np.asarray(value).shape
+        except Exception:
+            return None
+    if not shape:
+        return None
+    return int(shape[-1])
+
+
+def _stats_feature_dim(stats: Any) -> int | None:
+    if not isinstance(stats, dict):
+        return _value_last_dim(stats)
+
+    for stat_name in ("q01", "q99", "mean", "std", "min", "max", "q10", "q90"):
+        if stat_name not in stats:
+            continue
+        dim = _value_last_dim(stats[stat_name])
+        if dim is not None:
+            return dim
+    return None
+
+
+def _processor_feature_dim(
+    processor: PolicyProcessorPipeline[Any, Any] | None,
+    name: str,
+) -> int | None:
+    if processor is None:
+        return None
+
+    for step in getattr(processor, "steps", ()):
+        tensor_stats = getattr(step, "_tensor_stats", None)
+        if isinstance(tensor_stats, dict) and name in tensor_stats:
+            dim = _stats_feature_dim(tensor_stats[name])
+            if dim is not None:
+                return dim
+
+        stats = getattr(step, "stats", None)
+        if isinstance(stats, dict) and name in stats:
+            dim = _stats_feature_dim(stats[name])
+            if dim is not None:
+                return dim
+
+        features = getattr(step, "features", None)
+        if isinstance(features, dict):
+            dim = _policy_feature_dim(features, name)
+            if dim is not None:
+                return dim
+    return None
+
+
+def _policy_observation_state_dim(
+    cfg: EvalRealConfig,
+    preprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]] | None = None,
+) -> int | None:
+    return _processor_feature_dim(preprocessor, "observation.state") or _policy_feature_dim(
+        getattr(cfg.policy, "input_features", None),
+        "observation.state",
+    )
+
+
+def _policy_output_action_dim(
+    cfg: EvalRealConfig,
+    postprocessor: PolicyProcessorPipeline[PolicyAction, PolicyAction] | None = None,
+) -> int | None:
+    return _processor_feature_dim(postprocessor, "action") or _policy_feature_dim(
+        getattr(cfg.policy, "output_features", None),
+        "action",
+    )
+
+
 def compute_slow_move_tau(cfg: EvalRealConfig, arm_ik, arm_q: np.ndarray, alpha: float = 1.0) -> np.ndarray:
     arm_q = np.asarray(arm_q, dtype=np.float64)
     if cfg.slow_move_tau_scale <= 0:
@@ -3445,8 +3693,11 @@ def move_arm_to_pose_slowly(
     current_arm_q = require_finite_vector("current arm q", arm_ctrl.get_current_dual_arm_q(), target_arm_q.shape[0])
     settle_tolerance = float(cfg.init_tolerance if settle_tolerance is None else settle_tolerance)
     delta = target_arm_q - current_arm_q
-    max_delta = float(np.max(np.abs(delta)))
-    max_delta_joint = int(np.argmax(np.abs(delta)))
+    controlled_delta = _tracking_arm_delta(cfg, delta)
+    embedded_gripper_delta = _embedded_gripper_delta(cfg, delta)
+    max_delta = float(np.max(np.abs(controlled_delta)))
+    max_delta_joint = int(np.argmax(np.abs(controlled_delta)))
+    max_embedded_gripper_delta = _max_abs(embedded_gripper_delta)
 
     velocity_limit = (
         float(trajectory_velocity_limit)
@@ -3463,6 +3714,11 @@ def move_arm_to_pose_slowly(
     next_log_time = start_time
     motion_frequency = max(float(cfg.slow_move_frequency), 1.0)
     trajectory_time = max_delta / max(velocity_limit, 1e-6) if max_delta > 0 else 0.0
+    if max_embedded_gripper_delta > 0:
+        trajectory_time = max(
+            trajectory_time,
+            max_embedded_gripper_delta / max(float(cfg.init_ee_velocity_limit), 1e-6),
+        )
     steps = max(1, int(np.ceil(trajectory_time * motion_frequency)))
     start_arm_q = current_arm_q.copy()
     last_arm_cmd_q = current_arm_q.copy()
@@ -3487,6 +3743,71 @@ def move_arm_to_pose_slowly(
         f"tracking pause limit is {tracking_pause_limit:.4f} rad; "
         f"tracking wait timeout is {tracking_wait_timeout_s:.1f}s."
     )
+    if max_embedded_gripper_delta > 0:
+        logger_mp.info(
+            f"{label}: embedded S1 gripper max delta is {max_embedded_gripper_delta:.4f}; "
+            f"using init_ee_velocity_limit {float(cfg.init_ee_velocity_limit):.4f} for gripper timing."
+        )
+    move_dual_arm_to_pose = getattr(arm_ctrl, "move_dual_arm_to_pose", None)
+    if (
+        str(getattr(cfg, "arm", "")).lower() == "astribot_s1"
+        and target_arm_q.shape[0] == ASTRIBOT_S1_FULL_DIM
+        and callable(move_dual_arm_to_pose)
+    ):
+        duration = max(trajectory_time, 0.2)
+        logger_mp.info(
+            f"{label}: using Astribot S1 SDK move_joints_position for start/return alignment "
+            f"instead of streaming set_joints_position; duration={duration:.3f}s."
+        )
+        try:
+            result = move_dual_arm_to_pose(target_arm_q, duration=duration, label=label)
+            logger_mp.info(f"{label}: move_joints_position result: {result!r}.")
+        except Exception as exc:
+            logger_mp.error(f"{label}: move_joints_position failed before settling: {exc}")
+            return False
+
+        while True:
+            _consume_manual_snapshot_requests(key_listener, snapshot_callback, f"{label}_settling")
+            if allow_q_interrupt and key_listener is not None and key_listener.shutdown_requested:
+                logger_mp.info(f"Movement to {label} interrupted by q.")
+                return False
+
+            try:
+                current_arm_q = require_finite_vector(
+                    "current arm q", arm_ctrl.get_current_dual_arm_q(), target_arm_q.shape[0]
+                )
+            except Exception as exc:
+                logger_mp.error(f"{label}: failed to read S1 state while settling after move_joints_position: {exc}")
+                return False
+
+            err = np.abs(_tracking_arm_delta(cfg, target_arm_q - current_arm_q))
+            max_err = float(np.max(err))
+            if max_err <= settle_tolerance:
+                embedded_gripper_error = _max_abs(_embedded_gripper_delta(cfg, target_arm_q - current_arm_q))
+                if embedded_gripper_error > float(cfg.ee_tracking_tolerance):
+                    logger_mp.warning(
+                        f"{label}: embedded S1 gripper tracking error {embedded_gripper_error:.4f} exceeds "
+                        f"ee_tracking_tolerance {cfg.ee_tracking_tolerance:.4f}; "
+                        "gripper command may not be reaching the controller."
+                    )
+                    return bool(not cfg.abort_on_ee_tracking_error)
+                logger_mp.info(f"Reached {label}; max joint error {max_err:.4f} rad.")
+                return True
+
+            now = time.perf_counter()
+            elapsed = now - start_time
+            if cfg.init_timeout_s > 0 and elapsed > cfg.init_timeout_s:
+                logger_mp.info(
+                    f"Timed out while moving to {label}; max joint error is still {max_err:.4f} rad. "
+                    f"Settle tolerance is {settle_tolerance:.4f} rad. Evaluation will not start."
+                )
+                return False
+            if now >= next_log_time:
+                logger_mp.info(f"Settling at {label}: max joint error {max_err:.4f} rad after {elapsed:.1f}s.")
+                next_log_time = now + 2.0
+
+            time.sleep(0.05)
+
     for step_idx in range(1, steps + 1):
         _consume_manual_snapshot_requests(key_listener, snapshot_callback, f"{label}_moving")
         if allow_q_interrupt and key_listener is not None and key_listener.shutdown_requested:
@@ -3497,7 +3818,7 @@ def move_arm_to_pose_slowly(
         while step_idx > 1:
             _consume_manual_snapshot_requests(key_listener, snapshot_callback, f"{label}_tracking_wait")
             current_arm_q = require_finite_vector("current arm q", arm_ctrl.get_current_dual_arm_q(), target_arm_q.shape[0])
-            tracking_err = np.abs(last_arm_cmd_q - current_arm_q)
+            tracking_err = np.abs(_tracking_arm_delta(cfg, last_arm_cmd_q - current_arm_q))
             max_tracking_err = float(np.max(tracking_err))
             max_tracking_joint = int(np.argmax(tracking_err))
 
@@ -3542,7 +3863,7 @@ def move_arm_to_pose_slowly(
 
             elapsed = now - start_time
             if now >= next_log_time:
-                err = np.abs(target_arm_q - current_arm_q)
+                err = np.abs(_tracking_arm_delta(cfg, target_arm_q - current_arm_q))
                 max_err = float(np.max(err))
                 logger_mp.info(
                     f"Waiting for {label} tracking: max target error {max_err:.4f} rad, "
@@ -3565,10 +3886,10 @@ def move_arm_to_pose_slowly(
         last_tau = tau.copy()
 
         current_arm_q = require_finite_vector("current arm q", arm_ctrl.get_current_dual_arm_q(), target_arm_q.shape[0])
-        tracking_err = np.abs(arm_cmd_q - current_arm_q)
+        tracking_err = np.abs(_tracking_arm_delta(cfg, arm_cmd_q - current_arm_q))
         max_tracking_err = float(np.max(tracking_err))
         max_tracking_joint = int(np.argmax(tracking_err))
-        err = np.abs(target_arm_q - current_arm_q)
+        err = np.abs(_tracking_arm_delta(cfg, target_arm_q - current_arm_q))
         max_err = float(np.max(err))
 
         now = time.perf_counter()
@@ -3591,9 +3912,17 @@ def move_arm_to_pose_slowly(
             return False
 
         current_arm_q = require_finite_vector("current arm q", arm_ctrl.get_current_dual_arm_q(), target_arm_q.shape[0])
-        err = np.abs(target_arm_q - current_arm_q)
+        err = np.abs(_tracking_arm_delta(cfg, target_arm_q - current_arm_q))
         max_err = float(np.max(err))
         if max_err <= settle_tolerance:
+            embedded_gripper_error = _max_abs(_embedded_gripper_delta(cfg, target_arm_q - current_arm_q))
+            if embedded_gripper_error > float(cfg.ee_tracking_tolerance):
+                logger_mp.warning(
+                    f"{label}: embedded S1 gripper tracking error {embedded_gripper_error:.4f} exceeds "
+                    f"ee_tracking_tolerance {cfg.ee_tracking_tolerance:.4f}; "
+                    "gripper command may not be reaching the controller."
+                )
+                return bool(not cfg.abort_on_ee_tracking_error)
             logger_mp.info(f"Reached {label}; max joint error {max_err:.4f} rad.")
             return True
 
@@ -3752,12 +4081,16 @@ def warmup_policy_from_dataset(
     if warmup_steps <= 0:
         return
 
-    step = dataset[_first_eval_dataset_index(dataset)]
+    step = dataset[_first_eval_dataset_index_for_task(dataset, cfg)]
     observation = extract_observation(step)
     observation = ensure_runtime_thermal_input(cfg, observation, runtime_thermal_input_adapter)
     observation = _adapt_astribot_observation_for_policy(
         observation,
-        use_arm_gripper_view=_policy_uses_astribot_arm_gripper_view(cfg, ASTRIBOT_S1_FULL_DIM),
+        use_arm_gripper_view=_policy_expects_astribot_arm_gripper_state(
+            cfg,
+            ASTRIBOT_S1_FULL_DIM,
+            preprocessor=preprocessor,
+        ),
     )
     task = resolve_eval_task(cfg, step)
 
@@ -3806,9 +4139,49 @@ def _is_astribot_s1_whole_body(cfg: EvalRealConfig, arm_dof: int) -> bool:
     return str(getattr(cfg, "arm", "")).lower() == "astribot_s1" and int(arm_dof) == ASTRIBOT_S1_FULL_DIM
 
 
-def _policy_uses_astribot_arm_gripper_view(cfg: EvalRealConfig, arm_dof: int) -> bool:
-    state_dim = _policy_feature_dim(getattr(cfg.policy, "input_features", None), "observation.state")
-    action_dim = _policy_feature_dim(getattr(cfg.policy, "output_features", None), "action")
+def _astribot_s1_nonchassis_target(target_pose: np.ndarray, reference_pose: np.ndarray) -> np.ndarray:
+    """Keep S1 chassis at the captured/current pose while moving upper body.
+
+    The eval control shim commands torso, arms, grippers, and head. It does not
+    drive the wheeled chassis, so dataset chassis values must not be used as a
+    settling target.
+    """
+    target = require_finite_vector("Astribot S1 target pose", target_pose, ASTRIBOT_S1_FULL_DIM).copy()
+    reference = require_finite_vector("Astribot S1 reference pose", reference_pose, ASTRIBOT_S1_FULL_DIM)
+    target[ASTRIBOT_S1_CHASSIS_SLICE] = reference[ASTRIBOT_S1_CHASSIS_SLICE]
+    return target
+
+
+def _log_astribot_s1_pose_delta(label: str, current_pose: np.ndarray, target_pose: np.ndarray) -> None:
+    current = require_finite_vector(f"{label} current S1 pose", current_pose, ASTRIBOT_S1_FULL_DIM)
+    target = require_finite_vector(f"{label} target S1 pose", target_pose, ASTRIBOT_S1_FULL_DIM)
+    delta = target - current
+    logger_mp.info(
+        f"{label}: S1 non-chassis target delta max={_max_abs(delta[3:]):.4f}; "
+        f"chassis(current/target)={np.round(current[ASTRIBOT_S1_CHASSIS_SLICE], 4).tolist()}/"
+        f"{np.round(target[ASTRIBOT_S1_CHASSIS_SLICE], 4).tolist()}, "
+        f"torso_delta={np.round(delta[ASTRIBOT_S1_TORSO_SLICE], 4).tolist()}, "
+        f"head_delta={np.round(delta[ASTRIBOT_S1_HEAD_SLICE], 4).tolist()}."
+    )
+
+
+def _policy_expects_astribot_arm_gripper_state(
+    cfg: EvalRealConfig,
+    arm_dof: int,
+    preprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]] | None = None,
+) -> bool:
+    state_dim = _policy_observation_state_dim(cfg, preprocessor)
+    return _is_astribot_s1_whole_body(cfg, arm_dof) and state_dim == ASTRIBOT_S1_ARM_GRIPPER_DIM
+
+
+def _policy_uses_astribot_arm_gripper_view(
+    cfg: EvalRealConfig,
+    arm_dof: int,
+    preprocessor: PolicyProcessorPipeline[dict[str, Any], dict[str, Any]] | None = None,
+    postprocessor: PolicyProcessorPipeline[PolicyAction, PolicyAction] | None = None,
+) -> bool:
+    state_dim = _policy_observation_state_dim(cfg, preprocessor)
+    action_dim = _policy_output_action_dim(cfg, postprocessor)
     return (
         _is_astribot_s1_whole_body(cfg, arm_dof)
         and state_dim == ASTRIBOT_S1_ARM_GRIPPER_DIM
@@ -3831,6 +4204,96 @@ def _adapt_astribot_observation_for_policy(
 
 def _first_eval_dataset_index(dataset: LeRobotDataset) -> int:
     return 0 if getattr(dataset, "episodes", None) is not None else int(dataset.meta.episodes["dataset_from_index"][0])
+
+
+def _normalize_dataset_task_text(task: Any) -> str:
+    return " ".join(str(task).strip().split())
+
+
+def _episode_task_strings(tasks: Any) -> list[str]:
+    if tasks is None:
+        return []
+    if isinstance(tasks, str):
+        return [tasks]
+    if isinstance(tasks, np.ndarray):
+        tasks = tasks.tolist()
+    if isinstance(tasks, (list, tuple, set)):
+        return [str(task) for task in tasks if task is not None]
+    return [str(tasks)]
+
+
+def _episode_tasks_value(dataset: LeRobotDataset, episode_index: int) -> Any:
+    episodes = dataset.meta.episodes
+    try:
+        row = episodes[int(episode_index)]
+        if isinstance(row, dict) and "tasks" in row:
+            return row["tasks"]
+    except Exception:
+        pass
+    return episodes["tasks"][int(episode_index)]
+
+
+def _episode_start_index(dataset: LeRobotDataset, episode_index: int) -> int:
+    return int(dataset.meta.episodes["dataset_from_index"][int(episode_index)])
+
+
+def _episode_frame_count(dataset: LeRobotDataset, episode_index: int) -> int:
+    episode_index = int(episode_index)
+    start = int(dataset.meta.episodes["dataset_from_index"][episode_index])
+    end = int(dataset.meta.episodes["dataset_to_index"][episode_index])
+    return max(0, end - start)
+
+
+def _relative_start_index_for_episode(dataset: LeRobotDataset, episode_index: int) -> int:
+    selected_episodes = getattr(dataset, "episodes", None)
+    if selected_episodes is None:
+        return _episode_start_index(dataset, episode_index)
+
+    offset = 0
+    episode_index = int(episode_index)
+    for selected_episode in selected_episodes:
+        selected_episode = int(selected_episode)
+        if selected_episode == episode_index:
+            return offset
+        offset += _episode_frame_count(dataset, selected_episode)
+
+    raise ValueError(f"Episode {episode_index} is not present in the selected eval dataset episodes.")
+
+
+def _first_eval_dataset_index_for_task(dataset: LeRobotDataset, cfg: EvalRealConfig) -> int:
+    default_index = _first_eval_dataset_index(dataset)
+    target_task = _normalize_dataset_task_text(getattr(cfg, "task", ""))
+    if not target_task:
+        return default_index
+    target_task_key = target_task.casefold()
+
+    episodes_meta = getattr(getattr(dataset, "meta", None), "episodes", None)
+    if episodes_meta is None:
+        return default_index
+
+    selected_episodes = getattr(dataset, "episodes", None)
+    episode_indices = selected_episodes if selected_episodes is not None else range(len(episodes_meta))
+    for episode_index in episode_indices:
+        episode_index = int(episode_index)
+        tasks = [
+            _normalize_dataset_task_text(task)
+            for task in _episode_task_strings(_episode_tasks_value(dataset, episode_index))
+        ]
+        if target_task in tasks or target_task_key in {task.casefold() for task in tasks}:
+            start_index = _relative_start_index_for_episode(dataset, episode_index)
+            logger_mp.info(
+                "Dataset start frame matched --task: episode=%d, dataset_index=%d, task=%r.",
+                episode_index,
+                start_index,
+                target_task,
+            )
+            return start_index
+
+    logger_mp.warning(
+        "No dataset episode task matched --task %r; falling back to the first dataset frame.",
+        target_task,
+    )
+    return default_index
 
 
 def _sample_eval_dataset_episodes(cfg: EvalRealConfig) -> list[int] | None:
@@ -3868,6 +4331,7 @@ def _validate_eval_test_action(
     step: dict[str, Any],
     step_idx: int,
     inference_elapsed: float,
+    postprocessor: PolicyProcessorPipeline[PolicyAction, PolicyAction] | None = None,
 ) -> np.ndarray:
     if cfg.policy_inference_timeout_s > 0 and inference_elapsed > cfg.policy_inference_timeout_s:
         raise RuntimeError(
@@ -3879,7 +4343,7 @@ def _validate_eval_test_action(
     action_np = require_finite_vector(f"dry-run policy action step {step_idx}", action_np)
 
     dataset_action_dim = _dataset_action_dim(step)
-    policy_action_dim = _policy_feature_dim(getattr(cfg.policy, "output_features", None), "action")
+    policy_action_dim = _policy_output_action_dim(cfg, postprocessor=postprocessor)
     expected_dims = {dim for dim in (dataset_action_dim, policy_action_dim) if dim is not None}
     if expected_dims and action_np.shape[0] not in expected_dims:
         raise RuntimeError(
@@ -3934,7 +4398,11 @@ def run_policy_dataset_dry_run(
         observation = ensure_runtime_thermal_input(cfg, observation, runtime_thermal_input_adapter)
         observation = _adapt_astribot_observation_for_policy(
             observation,
-            use_arm_gripper_view=_policy_uses_astribot_arm_gripper_view(cfg, ASTRIBOT_S1_FULL_DIM),
+            use_arm_gripper_view=_policy_expects_astribot_arm_gripper_state(
+                cfg,
+                ASTRIBOT_S1_FULL_DIM,
+                preprocessor=preprocessor,
+            ),
         )
         validate_real_observation_keys(cfg, observation, f"Dry-run dataset step {step_idx}")
         task = resolve_eval_task(cfg, step)
@@ -3972,7 +4440,14 @@ def run_policy_dataset_dry_run(
         elif device.type == "cuda":
             torch.cuda.synchronize(device)
         inference_elapsed = time.perf_counter() - inference_start
-        action_np = _validate_eval_test_action(cfg, action, step, step_idx, inference_elapsed)
+        action_np = _validate_eval_test_action(
+            cfg,
+            action,
+            step,
+            step_idx,
+            inference_elapsed,
+            postprocessor=postprocessor,
+        )
         logger_mp.info(
             f"Dry-run step {step_idx}: dataset_idx={dataset_idx}, inference={inference_elapsed:.3f}s, "
             f"action_dim={action_np.shape[0]}, action_abs_max={_max_abs(action_np):.4f}."
@@ -4012,7 +4487,11 @@ def warmup_policy_from_real_observation(
         return
 
     logger_mp.info(f"Warming up policy for {warmup_steps} real-observation step(s); actions will be discarded.")
-    use_astribot_arm_gripper_view = _policy_uses_astribot_arm_gripper_view(cfg, arm_dof)
+    use_astribot_arm_gripper_view = _policy_expects_astribot_arm_gripper_state(
+        cfg,
+        arm_dof,
+        preprocessor=preprocessor,
+    )
     start_time = time.perf_counter()
     for warmup_idx in range(warmup_steps):
         observation, current_arm_q = process_images_and_observations(
@@ -4134,8 +4613,52 @@ def eval_policy(
     action_log_path = None
     ready_arm_pose = lowered_arm_pose = None
     shutdown_done = False
+    is_astribot_s1_whole_body_run = False
+    dataset_start_arm_pose = None
 
     def shutdown_robot() -> bool:
+        if (
+            is_astribot_s1_whole_body_run
+            and cfg.lower_to_startup_on_quit
+            and lowered_arm_pose is not None
+        ):
+            if cfg.open_ee_on_quit and ee_shared_mem is not None and ee_dof > 0:
+                logger_mp.info("Shutdown sequence: opening hands before returning S1 to captured initial pose.")
+                open_ok = move_ee_to_pose_slowly(
+                    cfg,
+                    ee_shared_mem,
+                    ee_dof,
+                    np.zeros(2 * ee_dof, dtype=np.float64),
+                    "shutdown open hands",
+                    key_listener=None,
+                    velocity_limit=cfg.shutdown_ee_open_velocity_limit,
+                )
+                if not open_ok:
+                    logger_mp.info("Shutdown hand opening did not complete; continuing S1 return-to-initial.")
+
+            logger_mp.info("Shutdown sequence: returning Astribot S1 to the captured pre-r initial pose.")
+            try:
+                current_pose = arm_ctrl.get_current_dual_arm_q()
+            except Exception as exc:
+                logger_mp.warning(
+                    "Shutdown sequence could not read the current S1 pose; "
+                    "skipping return-to-initial because the SDK connection is not healthy: %s",
+                    exc,
+                )
+                return False
+            _log_astribot_s1_pose_delta("Shutdown return target", current_pose, lowered_arm_pose)
+            return move_arm_to_pose_slowly(
+                cfg,
+                arm_ctrl,
+                arm_ik,
+                lowered_arm_pose,
+                "captured initial S1 pose",
+                key_listener=None,
+                allow_q_interrupt=False,
+                trajectory_velocity_limit=cfg.ready_arm_velocity_limit,
+                wait_for_clearance_on_block=False,
+                settle_tolerance=cfg.dataset_start_tolerance,
+            )
         return run_shutdown_sequence(
             cfg,
             arm_ctrl,
@@ -4190,10 +4713,17 @@ def eval_policy(
             ]
         )
 
-        # Get initial pose from the first step of the dataset
-        step = dataset[_first_eval_dataset_index(dataset)]
+        # Get initial pose from the dataset episode matching the eval task when possible.
+        eval_dataset_index = _first_eval_dataset_index_for_task(dataset, cfg)
+        step = dataset[eval_dataset_index]
         eval_task = resolve_eval_task(cfg, step)
         task_source = "--task" if _has_cli_task(cfg) else "dataset first frame"
+        logger_mp.info(
+            "Dataset start frame: index=%s, episode=%s, dataset_task=%r.",
+            eval_dataset_index,
+            _json_scalar_int(step.get("episode_index")),
+            step.get("task", ""),
+        )
         logger_mp.info(f"Policy task prompt ({task_source}): {eval_task!r}")
         init_arm_pose = require_finite_vector(
             "dataset first frame arm pose",
@@ -4208,8 +4738,8 @@ def eval_policy(
         expected_policy_dim = arm_dof + (2 * ee_dof if cfg.ee else 0)
         compressed_dex3_action_dim = arm_dof + 2
         supports_compressed_dex3_action = cfg.ee == "dex3" and ee_dof == 7
-        policy_state_dim = _policy_feature_dim(getattr(cfg.policy, "input_features", None), "observation.state")
-        policy_action_dim = _policy_feature_dim(getattr(cfg.policy, "output_features", None), "action")
+        policy_state_dim = _policy_observation_state_dim(cfg, preprocessor)
+        policy_action_dim = _policy_output_action_dim(cfg, postprocessor)
         supports_astribot_arm_gripper_policy = _is_astribot_s1_whole_body(cfg, arm_dof) and not cfg.ee
         uses_astribot_arm_gripper_policy = (
             supports_astribot_arm_gripper_policy
@@ -4259,13 +4789,46 @@ def eval_policy(
                 "to left/right arms and grippers; policy actions are expanded back to 25D whole-body "
                 "commands with chassis, torso, and head held at current values."
             )
-        if str(getattr(cfg.policy, "type", "")).lower() == "groot":
+        use_astribot_arm_gripper_view = (
+            supports_astribot_arm_gripper_policy
+            and policy_state_dim == ASTRIBOT_S1_ARM_GRIPPER_DIM
+        )
+        is_astribot_s1_whole_body_run = _is_astribot_s1_whole_body(cfg, arm_dof)
+        q_key_action = (
+            "return to captured initial S1 pose"
+            if is_astribot_s1_whole_body_run
+            else "open hands, retreat and lower"
+        )
+        policy_type = str(getattr(cfg.policy, "type", "")).lower()
+        policy_n_action_steps = getattr(cfg.policy, "n_action_steps", None)
+        policy_chunk_size = getattr(cfg.policy, "chunk_size", None)
+        if policy_n_action_steps is not None or policy_chunk_size is not None:
+            nominal_replan_s = None
+            if policy_n_action_steps is not None and float(cfg.frequency) > 0:
+                nominal_replan_s = float(policy_n_action_steps) / float(cfg.frequency)
+            logger_mp.info(
+                "Policy action execution cadence: type=%s, n_action_steps=%s, chunk_size=%s, "
+                "nominal replanning interval=%s at %.1f Hz.",
+                policy_type or None,
+                policy_n_action_steps,
+                policy_chunk_size,
+                f"{nominal_replan_s:.3f}s" if nominal_replan_s is not None else "unknown",
+                float(cfg.frequency),
+            )
+            if policy_type in {"pi0", "pi05", "pi0_fast"} and policy_n_action_steps and int(policy_n_action_steps) > 10:
+                logger_mp.warning(
+                    "Policy n_action_steps=%s means the robot consumes a long open-loop action queue before "
+                    "fresh image feedback is used. For more reactive real-robot eval, try "
+                    "--policy.n_action_steps=4 or --policy.n_action_steps=1.",
+                    policy_n_action_steps,
+                )
+        if policy_type == "groot":
             logger_mp.info(
                 "GR00T action execution cadence: policy n_action_steps=%s, chunk_size=%s, "
                 "resolved queued action steps=%s. For more reactive real-robot eval, try "
                 "--policy.n_action_steps=1.",
-                getattr(cfg.policy, "n_action_steps", None),
-                getattr(cfg.policy, "chunk_size", None),
+                policy_n_action_steps,
+                policy_chunk_size,
                 getattr(policy, "_action_queue_steps", None),
             )
 
@@ -4273,7 +4836,7 @@ def eval_policy(
         logger_mp.info(
             "Keyboard controls: r=move to dataset first frame, s=start policy, "
             "j=save current camera snapshot, b=back to dataset first frame after s, "
-            "q=open hands, retreat and lower, c=continue lowering after obstacle clearance."
+            f"q={q_key_action}, c=continue lowering after obstacle clearance."
         )
 
         if hasattr(arm_ctrl, "arm_velocity_limit"):
@@ -4284,6 +4847,13 @@ def eval_policy(
                 f"tracking error limit is {cfg.arm_tracking_error_limit:.4f} rad; "
                 f"slow move tau scale is {cfg.slow_move_tau_scale:.2f}."
             )
+        if is_astribot_s1_whole_body_run:
+            smooth_alpha = float(getattr(cfg, "astribot_policy_smooth_alpha", 0.0))
+            if 0.0 < smooth_alpha < 1.0:
+                logger_mp.info(
+                    "Astribot S1 policy action smoothing enabled: alpha=%.3f, applied to torso/arms/head only.",
+                    smooth_alpha,
+                )
 
         policy_device = get_safe_torch_device(policy.config.device)
 
@@ -4318,6 +4888,15 @@ def eval_policy(
 
         lowered_arm_pose = hold_current_arm_pose(arm_ctrl, arm_ik)
         ready_arm_pose = get_ready_arm_pose(cfg, arm_ik, lowered_arm_pose)
+        dataset_start_arm_pose = init_arm_pose.copy()
+        if is_astribot_s1_whole_body_run:
+            dataset_start_arm_pose = _astribot_s1_nonchassis_target(init_arm_pose, lowered_arm_pose)
+            logger_mp.info(
+                "Captured Astribot S1 pre-r initial pose. On r, eval will move torso/arms/grippers/head "
+                "to the dataset first frame while keeping the wheeled chassis at the captured value; "
+                "on q, eval returns to this captured initial pose."
+            )
+            _log_astribot_s1_pose_delta("Dataset first frame target", lowered_arm_pose, dataset_start_arm_pose)
         logger_mp.info(f"Startup/lowered arm pose captured:\n{lowered_arm_pose}")
         logger_mp.info(f"Ready arm pose target:\n{ready_arm_pose}")
 
@@ -4368,11 +4947,14 @@ def eval_policy(
 
         def move_to_dataset_first_frame(label: str) -> bool:
             logger_mp.info(f"{label}: preparing to move robot to dataset starting pose...")
+            target_arm_pose = dataset_start_arm_pose if dataset_start_arm_pose is not None else init_arm_pose
+            if is_astribot_s1_whole_body_run:
+                _log_astribot_s1_pose_delta(label, arm_ctrl.get_current_dual_arm_q(), target_arm_pose)
             if not move_arm_to_pose_slowly(
                 cfg,
                 arm_ctrl,
                 arm_ik,
-                init_arm_pose,
+                target_arm_pose,
                 "dataset first frame",
                 key_listener=key_listener,
                 settle_tolerance=cfg.dataset_start_tolerance,
@@ -4396,7 +4978,7 @@ def eval_policy(
         def wait_for_policy_start(snapshot_label: str) -> bool:
             logger_mp.info(
                 "At dataset first frame. Press 's' to start policy, 'j' to save a current camera snapshot, "
-                "'b' is ignored until policy is running, or 'q' to open hands and lower."
+                f"'b' is ignored until policy is running, or 'q' to {q_key_action}."
             )
             while True:
                 key = key_listener.wait_for("s", "q", "j", "b")
@@ -4444,7 +5026,7 @@ def eval_policy(
 
         logger_mp.info(
             "Ready. Press 'r' to slowly move to the dataset first frame, "
-            "'j' to save a current camera snapshot, or 'q' to open hands and lower."
+            f"'j' to save a current camera snapshot, or 'q' to {q_key_action}."
         )
         while True:
             key = key_listener.wait_for("r", "q", "j", "b")
@@ -4551,12 +5133,25 @@ def eval_policy(
                     "selected_camera_features": _selected_camera_feature_names(cfg),
                     "image_input_mode": _thermal_input_type(cfg),
                     "dataset_task": step["task"],
+                    "dataset_start_index": int(eval_dataset_index),
+                    "dataset_start_episode_index": _json_scalar_int(step.get("episode_index")),
                     "frequency": float(cfg.frequency),
                     "arm_dof": int(arm_dof),
                     "ee_dof": int(ee_dof),
+                    "astribot_control_transport": str(getattr(cfg, "astribot_control_transport", "local")),
+                    "astribot_control_server_address": str(
+                        getattr(cfg, "astribot_control_server_address", "") or getattr(cfg, "image_server_address", "")
+                    ),
+                    "astribot_control_port": int(getattr(cfg, "astribot_control_port", 6200)),
+                    "astribot_remote_interpolation_steps": int(
+                        getattr(cfg, "astribot_remote_interpolation_steps", 1)
+                    ),
                     "max_policy_arm_delta": float(cfg.max_policy_arm_delta),
                     "max_policy_ee_delta": float(cfg.max_policy_ee_delta),
                     "limit_policy_delta_from_last_command": bool(cfg.limit_policy_delta_from_last_command),
+                    "astribot_policy_smooth_alpha": float(
+                        getattr(cfg, "astribot_policy_smooth_alpha", 0.0)
+                    ),
                     "ee_tracking_tolerance": float(cfg.ee_tracking_tolerance),
                     "abort_on_ee_tracking_error": bool(cfg.abort_on_ee_tracking_error),
                     "save_attention_maps": bool(cfg.save_attention_maps),
@@ -4573,12 +5168,23 @@ def eval_policy(
                     "attention_overlay_video_fps": float(_attention_overlay_video_fps(cfg)),
                     "attention_map_dir": getattr(cfg, "_attention_map_dir", None),
                     "policy_action_dim": int(policy_action_dim) if policy_action_dim is not None else None,
+                    "policy_type": str(getattr(cfg.policy, "type", "") or ""),
+                    "policy_n_action_steps": int(policy_n_action_steps)
+                    if policy_n_action_steps is not None
+                    else None,
+                    "policy_chunk_size": int(policy_chunk_size)
+                    if policy_chunk_size is not None
+                    else None,
                     "supports_compressed_dex3_action": bool(supports_compressed_dex3_action),
                     "compressed_dex3_action_dim": int(compressed_dex3_action_dim),
                     "groot_action_queue_steps": int(getattr(policy, "_action_queue_steps", 0) or 0)
                     if str(getattr(cfg.policy, "type", "")).lower() == "groot"
                     else None,
                     "init_arm_pose": _json_array(init_arm_pose),
+                    "dataset_start_arm_pose": _json_array(dataset_start_arm_pose)
+                    if dataset_start_arm_pose is not None
+                    else None,
+                    "astribot_s1_chassis_preserved_on_r": bool(is_astribot_s1_whole_body_run),
                     "init_ee_pose": _json_array(init_ee_pose),
                     "dataset_action": _json_array(dataset_action),
                     "dataset_action_minus_state_abs_max": _max_abs(dataset_action - dataset_state)
@@ -4712,7 +5318,7 @@ def eval_policy(
             observation["observation.state"] = state_tensor
             observation = _adapt_astribot_observation_for_policy(
                 observation,
-                use_arm_gripper_view=uses_astribot_arm_gripper_policy,
+                use_arm_gripper_view=use_astribot_arm_gripper_view,
             )
             validate_real_observation_keys(cfg, observation, "Policy step observation")
             if key_listener.shutdown_requested:
@@ -4826,7 +5432,10 @@ def eval_policy(
                 compressed_dex3_action_np = policy_action_np.copy()
                 policy_action_np = expand_dex3_action(policy_action_np, arm_dof=arm_dof)
             astribot_arm_gripper_action_np = None
-            if uses_astribot_arm_gripper_policy and policy_action_np.shape[0] == ASTRIBOT_S1_ARM_GRIPPER_DIM:
+            if (
+                supports_astribot_arm_gripper_policy
+                and policy_action_np.shape[0] == ASTRIBOT_S1_ARM_GRIPPER_DIM
+            ):
                 astribot_arm_gripper_action_np = policy_action_np.copy()
                 policy_action_np = expand_astribot_s1_arm_gripper(policy_action_np, current_arm_q)
             raw_action_np = require_finite_vector("policy action", policy_action_np, expected_policy_dim)
@@ -4834,7 +5443,11 @@ def eval_policy(
             # 3. Execute Action
             raw_arm_action = raw_action_np[:arm_dof].copy()
             raw_arm_delta = raw_arm_action - current_arm_q
-            arm_action = raw_arm_action
+            arm_action = raw_arm_action.copy()
+            s1_policy_smoothing_applied = False
+            if is_astribot_s1_whole_body_run:
+                arm_action[ASTRIBOT_S1_CHASSIS_SLICE] = current_arm_q[ASTRIBOT_S1_CHASSIS_SLICE]
+                action_np[:arm_dof] = arm_action
             if cfg.max_policy_arm_delta > 0:
                 arm_delta_limit = float(cfg.max_policy_arm_delta)
                 arm_action = current_arm_q + np.clip(
@@ -4858,6 +5471,25 @@ def eval_policy(
                         -arm_delta_limit,
                         arm_delta_limit,
                     )
+                action_np[:arm_dof] = arm_action
+            if is_astribot_s1_whole_body_run:
+                arm_action[ASTRIBOT_S1_CHASSIS_SLICE] = current_arm_q[ASTRIBOT_S1_CHASSIS_SLICE]
+                arm_action[list(ASTRIBOT_S1_GRIPPER_INDICES)] = _clip_s1_embedded_grippers(
+                    cfg,
+                    raw_arm_action,
+                    current_arm_q,
+                    prev_sent_action_np,
+                    arm_dof,
+                )
+                before_smoothing_arm_action = arm_action.copy()
+                arm_action = _smooth_s1_upper_body_action(
+                    cfg,
+                    arm_action,
+                    current_arm_q,
+                    prev_sent_action_np,
+                    arm_dof,
+                )
+                s1_policy_smoothing_applied = bool(_max_abs(arm_action - before_smoothing_arm_action) > 1e-6)
                 action_np[:arm_dof] = arm_action
             arm_action = require_finite_vector("sent arm action", arm_action, arm_dof)
             tau = require_finite_vector("arm tau", arm_ik.solve_tau(arm_action), arm_dof)
@@ -4986,6 +5618,15 @@ def eval_policy(
                             "raw_astribot_right_gripper": float(astribot_arm_gripper_action_np[15]),
                         }
                     )
+                if is_astribot_s1_whole_body_run:
+                    record.update(
+                        {
+                            "astribot_policy_smooth_alpha": float(
+                                getattr(cfg, "astribot_policy_smooth_alpha", 0.0)
+                            ),
+                            "astribot_policy_smoothing_applied": bool(s1_policy_smoothing_applied),
+                        }
+                    )
                 if cfg.ee:
                     record.update(
                         {
@@ -5073,7 +5714,7 @@ def eval_main(cfg: EvalRealConfig):
 
     configure_policy_for_thermal_input_type(cfg)
     validate_thermal_input_selection(cfg)
-    logging.info(pformat(asdict(cfg)))
+    logging.info(pformat(config_dict_for_log(cfg)))
     prepare_attention_map_dir(cfg)
 
     # Check device is available
