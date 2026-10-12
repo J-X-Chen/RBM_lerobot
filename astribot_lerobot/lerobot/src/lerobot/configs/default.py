@@ -17,6 +17,7 @@
 from dataclasses import dataclass, field
 
 from lerobot.transforms import ImageTransformsConfig
+from lerobot.utils.astribot_action import resolve_astribot_s1_action_view
 from lerobot.utils.import_utils import get_safe_default_video_backend
 
 from .video import DEFAULT_DEPTH_UNIT, DEPTH_METER_UNIT, DEPTH_MILLIMETER_UNIT
@@ -47,9 +48,12 @@ class DatasetConfig:
     # "auto" only compresses 28D Dex3 datasets and leaves Astribot S1 25D whole-body data untouched.
     # Set to "ignore" to keep the 16D arm+grip interface while forcing both grip targets to zero.
     compress_dex3_actions: bool | str = "auto"
-    # Runtime view for Astribot S1 whole-body datasets. Set to "ignore" or
-    # "arms_grippers" to train only left/right arms plus left/right grippers
-    # from a 25D action/state dataset.
+    # Runtime view for Astribot S1 whole-body datasets:
+    # - "full": train 25D chassis+torso+arms+grippers+head action/state.
+    # - "arms_grippers": train a 16D view from either native 16D data or a
+    #   runtime slice of 25D data, keeping chassis, torso, and head locked at eval time.
+    astribot_action_view: str | None = None
+    # Legacy alias for astribot_action_view. Kept so old commands keep working.
     compress_astribot_actions: bool | str = False
     # Fraction of episodes held out per task for offline evaluation (0.0 = disabled).
     eval_split: float = 0.0
@@ -62,17 +66,18 @@ class DatasetConfig:
                     "compress_dex3_actions must be true, false, 'auto', or 'ignore', "
                     f"got {self.compress_dex3_actions!r}"
                 )
+        self.astribot_action_view = resolve_astribot_s1_action_view(
+            self.astribot_action_view,
+            self.compress_astribot_actions,
+        )
         if isinstance(self.compress_astribot_actions, str):
-            self.compress_astribot_actions = self.compress_astribot_actions.lower()
-            if self.compress_astribot_actions in {"false", "none", "off", "no"}:
+            text = self.compress_astribot_actions.lower()
+            if text in {"false", "none", "off", "no", "0"}:
                 self.compress_astribot_actions = False
-            elif self.compress_astribot_actions in {"true", "on", "yes"}:
+            elif text in {"true", "on", "yes", "1"}:
                 self.compress_astribot_actions = True
-            elif self.compress_astribot_actions not in {"auto", "ignore", "arms_grippers", "arm_gripper"}:
-                raise ValueError(
-                    "compress_astribot_actions must be true, false, 'auto', 'ignore', "
-                    f"or 'arms_grippers', got {self.compress_astribot_actions!r}"
-                )
+            else:
+                self.compress_astribot_actions = text
         if self.depth_output_unit not in (DEPTH_METER_UNIT, DEPTH_MILLIMETER_UNIT):
             raise ValueError(
                 f"depth_output_unit must be '{DEPTH_METER_UNIT}' or '{DEPTH_MILLIMETER_UNIT}', "

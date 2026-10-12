@@ -9,6 +9,10 @@ from lerobot.configs import parser
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.policies.pretrained import PreTrainedPolicy
 from lerobot.processor import PolicyAction, PolicyProcessorPipeline
+from lerobot.utils.astribot_action import (
+    ASTRIBOT_S1_ACTION_VIEW_AUTO,
+    normalize_astribot_s1_action_view,
+)
 from lerobot.utils.constants import ACTION
 
 
@@ -329,6 +333,10 @@ class EvalRealConfig:
     max_policy_arm_delta: float = 0.080
     max_policy_ee_delta: float = 10.0
     limit_policy_delta_from_last_command: bool = True
+    # "auto" infers the view from checkpoint dimensions. "full" requires a
+    # 25D S1 checkpoint; "arms_grippers" requires a 16D checkpoint and locks
+    # chassis, torso, and head to the current robot pose during policy rollout.
+    astribot_action_view: str = ASTRIBOT_S1_ACTION_VIEW_AUTO
     astribot_policy_smooth_alpha: float = 0.0
     ee_tracking_tolerance: float = 5.0
     abort_on_ee_tracking_error: bool = False
@@ -396,6 +404,7 @@ class EvalRealConfig:
     rename_map: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self):
+        self.astribot_action_view = normalize_astribot_s1_action_view(self.astribot_action_view)
         # HACK: We parse again the cli args here to get the pretrained path if there was one.
         policy_path = parser.get_path_arg("policy")
         if policy_path:

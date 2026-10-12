@@ -32,6 +32,8 @@ docs/pi05*
 astribot_sdk_ros2
 astribot_sdk_aarch64
 
+./unitree_image_service/*
+
 Add
 
 run_*.sh

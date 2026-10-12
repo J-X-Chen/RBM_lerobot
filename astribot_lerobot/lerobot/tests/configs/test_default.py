@@ -15,6 +15,11 @@ import draccus
 import pytest
 
 from lerobot.configs.default import DatasetConfig
+from lerobot.utils.astribot_action import (
+    ASTRIBOT_S1_ACTION_VIEW_ARM_GRIPPER,
+    ASTRIBOT_S1_ACTION_VIEW_AUTO,
+    ASTRIBOT_S1_ACTION_VIEW_FULL,
+)
 
 
 def test_dataset_config_valid():
@@ -47,7 +52,7 @@ def test_dataset_config_accepts_dex3_action_compression_modes(mode):
 
 
 def test_dataset_config_rejects_unknown_dex3_action_compression_mode():
-    with pytest.raises(ValueError, match="true, false, or 'ignore'"):
+    with pytest.raises(ValueError, match="true, false, 'auto', or 'ignore'"):
         DatasetConfig(repo_id="user/repo", compress_dex3_actions="unknown")
 
 
@@ -62,3 +67,39 @@ def test_dataset_config_parses_dex3_action_compression_modes_from_cli(cli_value,
     )
 
     assert config.compress_dex3_actions == expected
+
+
+@pytest.mark.parametrize(
+    ("view", "expected"),
+    [
+        ("full", ASTRIBOT_S1_ACTION_VIEW_FULL),
+        ("25d", ASTRIBOT_S1_ACTION_VIEW_FULL),
+        ("arms_grippers", ASTRIBOT_S1_ACTION_VIEW_ARM_GRIPPER),
+        ("16d", ASTRIBOT_S1_ACTION_VIEW_ARM_GRIPPER),
+        ("auto", ASTRIBOT_S1_ACTION_VIEW_AUTO),
+    ],
+)
+def test_dataset_config_accepts_astribot_action_view(view, expected):
+    config = DatasetConfig(repo_id="user/repo", astribot_action_view=view)
+
+    assert config.astribot_action_view == expected
+
+
+@pytest.mark.parametrize(
+    ("legacy_value", "expected"),
+    [
+        (True, ASTRIBOT_S1_ACTION_VIEW_ARM_GRIPPER),
+        ("ignore", ASTRIBOT_S1_ACTION_VIEW_ARM_GRIPPER),
+        ("auto", ASTRIBOT_S1_ACTION_VIEW_AUTO),
+        (False, ASTRIBOT_S1_ACTION_VIEW_FULL),
+    ],
+)
+def test_dataset_config_maps_legacy_astribot_compression_to_action_view(legacy_value, expected):
+    config = DatasetConfig(repo_id="user/repo", compress_astribot_actions=legacy_value)
+
+    assert config.astribot_action_view == expected
+
+
+def test_dataset_config_rejects_unknown_astribot_action_view():
+    with pytest.raises(ValueError, match="astribot_action_view"):
+        DatasetConfig(repo_id="user/repo", astribot_action_view="unknown")

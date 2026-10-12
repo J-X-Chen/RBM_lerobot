@@ -69,7 +69,12 @@ from lerobot.optim.factory import make_optimizer_and_scheduler
 from lerobot.policies import PreTrainedPolicy, make_policy, make_pre_post_processors
 from lerobot.rewards import make_reward_pre_post_processors
 from lerobot.utils.collate import lerobot_collate_fn
-from lerobot.utils.astribot_action import enable_astribot_s1_arm_gripper_filter
+from lerobot.utils.astribot_action import (
+    ASTRIBOT_S1_ACTION_VIEW_ARM_GRIPPER,
+    ASTRIBOT_S1_ACTION_VIEW_AUTO,
+    ASTRIBOT_S1_ACTION_VIEW_FULL,
+    enable_astribot_s1_arm_gripper_filter,
+)
 from lerobot.utils.dex3_action import enable_dex3_action_compression
 from lerobot.utils.import_utils import register_third_party_plugins
 from lerobot.utils.logging_utils import AverageMeter, MetricsTracker
@@ -347,11 +352,16 @@ def _should_compress_dex3_actions(dataset, mode: bool | str, *, log_skip: bool) 
     return should_compress
 
 
-def _should_compress_astribot_actions(dataset, mode: bool | str, *, log_skip: bool) -> bool:
-    if not mode:
+def _should_use_astribot_arm_gripper_view(dataset, action_view: str, *, log_skip: bool) -> bool:
+    if action_view == ASTRIBOT_S1_ACTION_VIEW_FULL:
         return False
-    if mode != "auto":
+    if action_view == ASTRIBOT_S1_ACTION_VIEW_ARM_GRIPPER:
         return True
+    if action_view != ASTRIBOT_S1_ACTION_VIEW_AUTO:
+        raise ValueError(
+            "dataset.astribot_action_view must be 'full', 'arms_grippers', or 'auto', "
+            f"got {action_view!r}."
+        )
 
     action_shape = _dataset_action_shape(dataset)
     state_feature = getattr(getattr(dataset, "meta", None), "features", {}).get("observation.state")
@@ -479,8 +489,8 @@ def train(cfg: TrainPipelineConfig, accelerator: "Accelerator | None" = None):
                 eval_dataset, ignore_hands=ignore_dex3_hands
             )
 
-    if _should_compress_astribot_actions(
-        dataset, cfg.dataset.compress_astribot_actions, log_skip=is_main_process
+    if _should_use_astribot_arm_gripper_view(
+        dataset, cfg.dataset.astribot_action_view, log_skip=is_main_process
     ):
         if cfg.dataset.streaming:
             raise NotImplementedError(

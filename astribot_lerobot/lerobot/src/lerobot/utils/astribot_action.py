@@ -13,12 +13,61 @@ from lerobot.utils.constants import ACTION, OBS_STATE
 
 ASTRIBOT_S1_FULL_DIM = 25
 ASTRIBOT_S1_ARM_GRIPPER_DIM = 16
+ASTRIBOT_S1_ACTION_VIEW_AUTO = "auto"
+ASTRIBOT_S1_ACTION_VIEW_FULL = "full"
+ASTRIBOT_S1_ACTION_VIEW_ARM_GRIPPER = "arms_grippers"
 
 # Dataset order:
 # chassis(3), torso(4), left arm(7), left gripper(1), right arm(7), right gripper(1), head(2).
 ASTRIBOT_S1_ARM_GRIPPER_INDICES = tuple(range(7, 15)) + tuple(range(15, 23))
 
 ArrayLike = TypeVar("ArrayLike", np.ndarray, torch.Tensor)
+
+
+def normalize_astribot_s1_action_view(value: str | bool | None, *, allow_auto: bool = True) -> str:
+    """Normalize the user-facing Astribot S1 action view selector."""
+    if isinstance(value, bool):
+        return ASTRIBOT_S1_ACTION_VIEW_ARM_GRIPPER if value else ASTRIBOT_S1_ACTION_VIEW_FULL
+
+    text = str(value or "").strip().strip("\"'").lower().replace("-", "_")
+    if text in {"", "false", "none", "off", "no", "0", "full", "all", "whole_body", "wholebody", "25", "25d"}:
+        return ASTRIBOT_S1_ACTION_VIEW_FULL
+    if text == ASTRIBOT_S1_ACTION_VIEW_AUTO and allow_auto:
+        return ASTRIBOT_S1_ACTION_VIEW_AUTO
+    if text in {
+        "true",
+        "on",
+        "yes",
+        "1",
+        "ignore",
+        "compress",
+        "compressed",
+        "arm_gripper",
+        "arms_grippers",
+        "arms_gripper",
+        "arm_grippers",
+        "arms",
+        "16",
+        "16d",
+        "locked",
+        "lock",
+    }:
+        return ASTRIBOT_S1_ACTION_VIEW_ARM_GRIPPER
+
+    allowed = ["full", "arms_grippers"]
+    if allow_auto:
+        allowed.append("auto")
+    raise ValueError(f"astribot_action_view must be one of {allowed}, got {value!r}.")
+
+
+def resolve_astribot_s1_action_view(
+    action_view: str | bool | None,
+    legacy_compress: str | bool | None = None,
+) -> str:
+    """Resolve the new action view knob with the legacy compression flag."""
+    if action_view not in {None, ""}:
+        return normalize_astribot_s1_action_view(action_view)
+    return normalize_astribot_s1_action_view(legacy_compress)
 
 
 def select_astribot_s1_arm_gripper(value: ArrayLike) -> ArrayLike:
@@ -109,6 +158,19 @@ def _update_feature_metadata(dataset, key: str) -> None:
         dataset.meta.stats[key] = _slice_stats(dataset.meta.stats[key])
 
 
+def _feature_dim(dataset, key: str) -> int:
+    feature = dataset.meta.features.get(key)
+    if feature is None:
+        raise ValueError(f"Astribot S1 arms_grippers view requires the dataset '{key}' feature.")
+    shape = tuple(feature.get("shape", ()))
+    if shape not in {(ASTRIBOT_S1_FULL_DIM,), (ASTRIBOT_S1_ARM_GRIPPER_DIM,)}:
+        raise ValueError(
+            "Astribot S1 arms_grippers view requires 25D full-body or 16D arm/gripper "
+            f"'{key}' data, got shape {feature.get('shape')}."
+        )
+    return shape[0]
+
+
 class AstribotS1ArmGripperDataset(torch.utils.data.Dataset):
     """Runtime view of a 25D Astribot S1 dataset as 16D arms + grippers."""
 
@@ -128,8 +190,18 @@ class AstribotS1ArmGripperDataset(torch.utils.data.Dataset):
         return getattr(self.dataset, name)
 
 
-def enable_astribot_s1_arm_gripper_filter(dataset) -> AstribotS1ArmGripperDataset:
-    """Create a runtime view and update in-memory metadata/stats to 16D."""
+def enable_astribot_s1_arm_gripper_filter(dataset):
+    """Create a 16D runtime view, or return a dataset that is already 16D."""
+    action_dim = _feature_dim(dataset, ACTION)
+    state_dim = _feature_dim(dataset, OBS_STATE)
+    if action_dim != state_dim:
+        raise ValueError(
+            "Astribot S1 arms_grippers view requires matching action and observation.state dims, "
+            f"got action={action_dim} and observation.state={state_dim}."
+        )
+    if action_dim == ASTRIBOT_S1_ARM_GRIPPER_DIM:
+        return dataset
+
     _update_feature_metadata(dataset, ACTION)
     _update_feature_metadata(dataset, OBS_STATE)
     return AstribotS1ArmGripperDataset(dataset)
