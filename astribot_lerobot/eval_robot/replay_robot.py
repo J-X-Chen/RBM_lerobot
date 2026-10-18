@@ -25,7 +25,6 @@ from astribot_lerobot.eval_robot.eval_s1 import (
 )
 from astribot_lerobot.eval_robot.utils.utils import cleanup_resources, EvalRealConfig
 
-from astribot_lerobot.eval_robot.utils.rerun_visualizer import RerunLogger, visualization_data
 from astribot_lerobot.eval_robot.utils.utils import to_list, to_scalar
 
 import logging_mp
@@ -51,9 +50,14 @@ def replay_main(cfg: EvalRealConfig):
     if cfg.frequency <= 0:
         raise ValueError(f"frequency must be positive, got {cfg.frequency}")
 
-    if cfg.visualization:
-        rerun_logger = RerunLogger()
+    rerun_logger = None
+    visualization_data_fn = None
     visualization_enabled = bool(cfg.visualization)
+    if visualization_enabled:
+        from astribot_lerobot.eval_robot.utils.rerun_visualizer import RerunLogger, visualization_data
+
+        rerun_logger = RerunLogger()
+        visualization_data_fn = visualization_data
 
     dataset = LeRobotDataset(repo_id=cfg.repo_id, root=cfg.root, episodes=[cfg.episodes])
     actions = dataset.hf_dataset.select_columns("action")
@@ -65,10 +69,12 @@ def replay_main(cfg: EvalRealConfig):
     )
 
     try:
-        user_input = input(
-            "This will connect to the real robot, enter debug mode, and start low-level hold control. "
-            "Enter 'c' to connect:"
+        print(
+            "\nThis will connect to the real robot, enter debug mode, and start low-level hold control.\n"
+            "Type 'c' then Enter to connect, or anything else to cancel.",
+            flush=True,
         )
+        user_input = input("> ")
     except EOFError:
         logger_mp.info("Replay canceled before connecting to robot: no input received.")
         return
@@ -177,6 +183,7 @@ def replay_main(cfg: EvalRealConfig):
             init_arm_pose,
             "dataset first frame",
             key_listener=key_listener,
+            settle_tolerance=cfg.dataset_start_tolerance,
         ):
             logger_mp.info("Dataset first frame move did not complete; starting shutdown sequence.")
             shutdown_done = shutdown_robot()
@@ -242,7 +249,7 @@ def replay_main(cfg: EvalRealConfig):
                 state = np.concatenate((current_arm_q, left_ee_state, right_ee_state))
 
                 try:
-                    visualization_data(idx, observation, state, action_np, rerun_logger)
+                    visualization_data_fn(idx, observation, state, action_np, rerun_logger)
                 except Exception as exc:
                     visualization_enabled = False
                     logger_mp.warning(f"Visualization failed and will be disabled for this replay: {exc}")

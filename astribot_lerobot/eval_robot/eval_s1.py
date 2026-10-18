@@ -3160,11 +3160,25 @@ def filter_observation_camera_features(cfg: EvalRealConfig, observation: dict[st
     selected = set(_selected_camera_feature_names(cfg))
     if not selected:
         return observation
-    return {
+    filtered = {
         key: value
         for key, value in observation.items()
         if not key.startswith("observation.images.") or key in selected
     }
+    if bool(getattr(cfg, "head_only_camera_fallback", False)):
+        head = filtered.get("observation.images.head")
+        if head is None:
+            head = filtered.get("observation.images.cam_left_high")
+        if head is not None:
+            for feature_name in (
+                "observation.images.left",
+                "observation.images.right",
+                "observation.images.cam_left_wrist",
+                "observation.images.cam_right_wrist",
+            ):
+                if feature_name in selected and feature_name not in filtered:
+                    filtered[feature_name] = head
+    return filtered
 
 
 def _needs_head_camera_snapshot(cfg: EvalRealConfig) -> bool:
@@ -3522,6 +3536,12 @@ def save_camera_feature_snapshot_on_s(cfg: EvalRealConfig, observation: dict[str
 
 
 def enable_required_camera_inputs(cfg: EvalRealConfig) -> None:
+    if bool(getattr(cfg, "head_only_camera_fallback", False)):
+        logger_mp.warning(
+            "Head-only camera fallback enabled: wrist camera streams will not be required; "
+            "missing wrist image features are filled with the head camera image."
+        )
+        return
     if _policy_requires_wrist_cameras(cfg) and not cfg.use_wrist_cameras:
         cfg.use_wrist_cameras = True
         logger_mp.info("Selected camera features include wrist cameras; enabling --use_wrist_cameras automatically.")
@@ -4774,7 +4794,11 @@ def eval_policy(
     try:
         # --- Setup Phase ---
         image_info = setup_image_client(cfg)
-        if _policy_requires_wrist_cameras(cfg) and not image_info.get("has_wrist_cam", False):
+        if (
+            _policy_requires_wrist_cameras(cfg)
+            and not image_info.get("has_wrist_cam", False)
+            and not bool(getattr(cfg, "head_only_camera_fallback", False))
+        ):
             raise RuntimeError(
                 "Selected camera features require wrist cameras, but the image client did not enable wrist buffers. "
                 "Use --use_wrist_cameras=true or keep automatic camera enabling active."
@@ -5165,6 +5189,8 @@ def eval_policy(
             logger_mp.info("No selected head camera features; skipping head camera snapshot requirement.")
 
         require_left_wrist, require_right_wrist = _selected_wrist_camera_sides(cfg)
+        if bool(getattr(cfg, "head_only_camera_fallback", False)):
+            require_left_wrist = require_right_wrist = False
         if require_left_wrist or require_right_wrist:
             wrists_ready = save_wrist_camera_snapshots(
                 wrist_img_array,

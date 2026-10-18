@@ -10,22 +10,26 @@ Both PI0.5 runs below are full-parameter finetuning.
 
 1. Start the Astribot image service
 
-cd /home/jchen572/Code_file/RBM_lerobot
+cd /home/jchen572/code_file/astribot_service
 conda activate teleimage
-export PYTHONPATH=/home/jchen572/Code_file/RBM_lerobot/astribot_lerobot/lerobot/src
-export ASTRIBOT_SDK_ROOT=/home/jchen572/Code_file/RBM_lerobot/astribot_sdk_aarch64
+export ASTRIBOT_SDK_ROOT=/home/jchen572/code_file/astribot_service/astribot_sdk_aarch64
 export ASTRIBOT_LOG=1
 source /opt/ros/humble/setup.bash
-source /home/jchen572/Code_file/RBM_lerobot/astribot_sdk_aarch64/env.sh
 python -m astribot_image_service.server \
-    --sdk-root /home/jchen572/Code_file/RBM_lerobot/astribot_sdk_aarch64 \
+    --sdk-root /home/jchen572/code_file/astribot_service/astribot_sdk_aarch64 \
     --bind-host 0.0.0.0 \
-    --bind-port 6100 \
-    --frequency 30 \
+    --sdk-freq 30 \
+    --head-port 6100 \
+    --left-wrist-port 6101 \
+    --right-wrist-port 6102 \
     --jpeg-quality 80 \
-    --camera 1:front \
-    --camera 2:left_wrist \
-    --camera 3:right_wrist
+    --enable-control \
+    --execute-control \
+    --control-bind-host 0.0.0.0 \
+    --control-port 6200 \
+    --control-frequency 250 \
+    --control-action-frequency 120 \
+    --control-way filter
 
 
 2. Optional image client preview
@@ -34,14 +38,57 @@ cd /home/jchen572/Code_file/RBM_lerobot
 conda activate lerobot
 export PYTHONPATH=/home/jchen572/Code_file/RBM_lerobot/astribot_lerobot/lerobot/src
 python -m astribot_image_service.client \
-    --server tcp://192.168.0.11:6100 \
-    --camera front \
-    --camera left_wrist \
-    --camera right_wrist \
-    --imshow
+    --host 192.168.0.11 \
+    --head-port 6100 \
+    --left-wrist-port 6101 \
+    --right-wrist-port 6102
 
 
-3. PI0.5 25D full-parameter finetune
+3. Real robot dataset action replay
+
+This uses keyboard gates: type c then Enter to connect, press r to move to the dataset first frame, press s to start replay, press q to shutdown.
+
+cd /home/jchen572/code_file/RBM_lerobot
+conda activate astribot_lerobot
+export PYTHONPATH=/home/jchen572/code_file/RBM_lerobot/astribot_lerobot/lerobot/src
+python astribot_lerobot/eval_robot/replay_robot.py \
+    --repo_id=local/cup_selection_s1_action \
+    --root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/red_cup_selection_left_s1 \
+    --task="Select the red cup and place it on the black coaster" \
+    --episodes=0 \
+    --frequency=30 \
+    --arm=Astribot_S1 \
+    --ee='' \
+    --visualization=false \
+    --send_real_robot=true \
+    --image_transport=teleimager \
+    --image_server_address=192.168.0.11 \
+    --head_camera_zmq_port=6100 \
+    --left_wrist_camera_zmq_port=6101 \
+    --right_wrist_camera_zmq_port=6102 \
+    --head_camera_image_height=720 \
+    --head_camera_image_width=1280 \
+    --wrist_camera_image_height=360 \
+    --wrist_camera_image_width=640 \
+    --use_wrist_cameras=true \
+    --astribot_control_transport=remote \
+    --astribot_control_server_address=192.168.0.11 \
+    --astribot_control_port=6200 \
+    --astribot_control_timeout_s=5 \
+    --astribot_remote_interpolation_steps=4 \
+    --camera_features='["observation.images.head","observation.images.left","observation.images.right"]' \
+    --astribot_control_way=filter \
+    --astribot_use_wbc=false \
+    --ready_lift_m=0 \
+    --ready_max_joint_delta=0.25 \
+    --arm_low_level_velocity_limit=8.0 \
+    --arm_tracking_error_limit=0.35 \
+    --dataset_start_tolerance=0.08 \
+    --slow_move_tracking_wait_timeout_s=8 \
+    --init_timeout_s=60
+
+
+4. PI0.5 25D full-parameter finetune
 
 cd /home/jchen572/Code_file/RBM_lerobot
 conda activate astribot_lerobot
@@ -67,7 +114,7 @@ CUDA_VISIBLE_DEVICES=1 python astribot_lerobot/lerobot/src/lerobot/scripts/lerob
     --wandb.disable_artifact=true
 
 
-4. PI0.5 16D full-parameter finetune
+5. PI0.5 16D full-parameter finetune
 
 cd /home/jchen572/Code_file/RBM_lerobot
 conda activate astribot_lerobot
@@ -93,139 +140,147 @@ CUDA_VISIBLE_DEVICES=1 python astribot_lerobot/lerobot/src/lerobot/scripts/lerob
     --wandb.disable_artifact=true
 
 
-5. Dry-run PI0.5 25D checkpoint without sending robot commands
+6. Real robot eval for PI0.5 25D
 
-cd /home/jchen572/Code_file/RBM_lerobot
-conda activate lerobot
-export PYTHONPATH=/home/jchen572/Code_file/RBM_lerobot/astribot_lerobot/lerobot/src
+cd /home/jchen572/code_file/RBM_lerobot
+conda activate astribot_lerobot
+export PYTHONPATH=/home/jchen572/code_file/RBM_lerobot/astribot_lerobot/lerobot/src
 CUDA_VISIBLE_DEVICES=1 python astribot_lerobot/eval_robot/eval_s1.py \
-    --policy_path=/home/jchen572/Code_file/RBM_lerobot/astribot_lerobot/lerobot/outputs/pi05_astribot_s1_25d/checkpoints/last/pretrained_model \
+    --policy.path=/home/jchen572/code_file/RBM_lerobot/cjx_checkpoints/104psimple_s1_pi05_25d \
+    --policy.n_action_steps=4 \
     --repo_id=local/cup_selection_s1_action \
-    --root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/cup_selection_s1_action \
+    --root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/red_cup_selection_left_s1 \
     --task="Select the red cup and place it on the black coaster" \
     --astribot_action_view=full \
     --episodes=1 \
-    --episode_time_s=5 \
-    --frequency=10 \
-    --arm_type=both \
-    --ee_type=gripper \
+    --frequency=30 \
+    --arm=Astribot_S1 \
+    --ee='' \
     --visualization=false \
-    --send_real_robot=false \
-    --image_transport=remote \
-    --image_server=tcp://192.168.0.11:6100 \
-    --camera_features='{"observation.images.head":"front","observation.images.left":"left_wrist","observation.images.right":"right_wrist"}' \
-    --policy_warmup_steps=3 \
-    --policy_inference_timeout_s=10
+    --send_real_robot=true \
+    --image_transport=teleimager \
+    --image_server_address=192.168.0.11 \
+    --head_camera_zmq_port=6100 \
+    --left_wrist_camera_zmq_port=6101 \
+    --right_wrist_camera_zmq_port=6102 \
+    --head_camera_image_height=720 \
+    --head_camera_image_width=1280 \
+    --wrist_camera_image_height=360 \
+    --wrist_camera_image_width=640 \
+    --use_wrist_cameras=true \
+    --astribot_control_transport=remote \
+    --astribot_control_server_address=192.168.0.11 \
+    --astribot_control_port=6200 \
+    --astribot_control_timeout_s=5 \
+    --astribot_remote_interpolation_steps=4 \
+    --camera_features='["observation.images.head","observation.images.left","observation.images.right"]' \
+    --astribot_control_way=filter \
+    --astribot_use_wbc=false \
+    --ready_lift_m=0 \
+    --ready_max_joint_delta=0.25 \
+    --max_policy_arm_delta=0.080 \
+    --max_policy_ee_delta=10.0 \
+    --astribot_policy_smooth_alpha=0.5 \
+    --arm_tracking_error_limit=0.35 \
+    --slow_move_tracking_wait_timeout_s=8 \
+    --policy_warmup_steps=5 \
+    --real_policy_warmup_steps=5 \
+    --policy_inference_timeout_s=10 \
+    --action_log_path=/home/jchen572/code_file/RBM_lerobot/eval_action_logs/pi05_astribot_s1_25d_safe_test
 
 
-6. Dry-run PI0.5 16D checkpoint without sending robot commands
+7. Real robot eval for PI0.5 16D
 
-cd /home/jchen572/Code_file/RBM_lerobot
-conda activate lerobot
+cd /home/jchen572/code_file/RBM_lerobot
+conda activate astribot_lerobot
 export PYTHONPATH=/home/jchen572/Code_file/RBM_lerobot/astribot_lerobot/lerobot/src
-CUDA_VISIBLE_DEVICES=1 python astribot_lerobot/eval_robot/eval_s1.py \
-    --policy_path=/home/jchen572/Code_file/RBM_lerobot/astribot_lerobot/lerobot/outputs/pi05_astribot_s1_16d/checkpoints/last/pretrained_model \
+
+CUDA_VISIBLE_DEVICES=0 python astribot_lerobot/eval_robot/eval_s1.py \
+    --policy.path=/home/jchen572/code_file/RBM_lerobot/cjx_checkpoints/103psimple_s1_pi05_16d \
+    --policy.n_action_steps=4 \
     --repo_id=local/cup_selection_s1_action \
-    --root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/cup_selection_s1_action \
+    --root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/red_cup_selection_left_s1 \
     --task="Select the red cup and place it on the black coaster" \
     --astribot_action_view=arms_grippers \
     --episodes=1 \
-    --episode_time_s=5 \
-    --frequency=10 \
-    --arm_type=both \
-    --ee_type=gripper \
-    --visualization=false \
-    --send_real_robot=false \
-    --image_transport=remote \
-    --image_server=tcp://192.168.0.11:6100 \
-    --camera_features='{"observation.images.head":"front","observation.images.left":"left_wrist","observation.images.right":"right_wrist"}' \
-    --policy_warmup_steps=3 \
-    --policy_inference_timeout_s=10
-
-
-7. Real robot eval for PI0.5 25D
-
-cd /home/jchen572/Code_file/RBM_lerobot
-conda activate lerobot
-export PYTHONPATH=/home/jchen572/Code_file/RBM_lerobot/astribot_lerobot/lerobot/src
-CUDA_VISIBLE_DEVICES=1 python astribot_lerobot/eval_robot/eval_s1.py \
-    --policy_path=/home/jchen572/Code_file/RBM_lerobot/astribot_lerobot/lerobot/outputs/pi05_astribot_s1_25d/checkpoints/last/pretrained_model \
-    --repo_id=local/cup_selection_s1_action \
-    --root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/cup_selection_s1_action \
-    --task="Select the red cup and place it on the black coaster" \
-    --astribot_action_view=full \
-    --episodes=1 \
-    --episode_time_s=60 \
-    --frequency=10 \
-    --arm_type=both \
-    --ee_type=gripper \
+    --frequency=30 \
+    --arm=Astribot_S1 \
+    --ee='' \
     --visualization=false \
     --send_real_robot=true \
-    --image_transport=remote \
-    --image_server=tcp://192.168.0.11:6100 \
+    --image_transport=teleimager \
+    --image_server_address=192.168.0.11 \
+    --head_camera_zmq_port=6100 \
+    --left_wrist_camera_zmq_port=6101 \
+    --right_wrist_camera_zmq_port=6102 \
+    --head_camera_image_height=720 \
+    --head_camera_image_width=1280 \
+    --wrist_camera_image_height=360 \
+    --wrist_camera_image_width=640 \
+    --use_wrist_cameras=true \
     --astribot_control_transport=remote \
-    --astribot_control_address=192.168.0.11 \
+    --astribot_control_server_address=192.168.0.11 \
     --astribot_control_port=6200 \
     --astribot_control_timeout_s=5 \
-    --astribot_interpolation_steps=4 \
-    --camera_features='{"observation.images.head":"front","observation.images.left":"left_wrist","observation.images.right":"right_wrist"}' \
-    --use_way_filter=true \
-    --use_wbc=false \
+    --astribot_remote_interpolation_steps=4 \
+    --camera_features='["observation.images.head","observation.images.left","observation.images.right"]' \
+    --astribot_control_way=filter \
+    --astribot_use_wbc=false \
     --ready_lift_m=0 \
-    --max_joint_delta=0.25 \
-    --max_arm_joint_delta=0.2 \
-    --max_dex3_delta=0.25 \
-    --max_linear_delta=0.1 \
-    --max_angular_delta=0.4 \
-    --max_chassis_velocity=0.2 \
-    --max_head_velocity=0.4 \
-    --policy_smooth_alpha=0.9 \
-    --max_tracking_joint_error=1.0 \
-    --track_timeout_s=8 \
+    --ready_max_joint_delta=0.25 \
+    --max_policy_arm_delta=0.080 \
+    --max_policy_ee_delta=10.0 \
+    --astribot_policy_smooth_alpha=0.5 \
+    --arm_tracking_error_limit=0.35 \
+    --slow_move_tracking_wait_timeout_s=8 \
     --policy_warmup_steps=5 \
+    --real_policy_warmup_steps=5 \
     --policy_inference_timeout_s=10 \
-    --action_log_dir=/home/jchen572/Code_file/RBM_lerobot/eval_action_logs/pi05_astribot_s1_25d_safe_test
+    --action_log_path=/home/jchen572/code_file/RBM_lerobot/eval_action_logs/pi05_astribot_s1_16d_safe_test
 
 
-8. Real robot eval for PI0.5 16D
+8. Real robot eval for PI0.5 16D head only
 
-cd /home/jchen572/Code_file/RBM_lerobot
-conda activate lerobot
+cd /home/jchen572/code_file/RBM_lerobot
+conda activate astribot_lerobot
 export PYTHONPATH=/home/jchen572/Code_file/RBM_lerobot/astribot_lerobot/lerobot/src
-CUDA_VISIBLE_DEVICES=1 python astribot_lerobot/eval_robot/eval_s1.py \
-    --policy_path=/home/jchen572/Code_file/RBM_lerobot/astribot_lerobot/lerobot/outputs/pi05_astribot_s1_16d/checkpoints/last/pretrained_model \
+
+CUDA_VISIBLE_DEVICES=0 python astribot_lerobot/eval_robot/eval_s1.py \
+    --policy.path=/home/jchen572/code_file/RBM_lerobot/cjx_checkpoints/105psimple_s1_pi05_16d_head_only \
+    --policy.n_action_steps=4 \
     --repo_id=local/cup_selection_s1_action \
-    --root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/cup_selection_s1_action \
+    --root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/red_cup_selection_left_s1 \
     --task="Select the red cup and place it on the black coaster" \
     --astribot_action_view=arms_grippers \
     --episodes=1 \
-    --episode_time_s=60 \
-    --frequency=10 \
-    --arm_type=both \
-    --ee_type=gripper \
+    --frequency=30 \
+    --arm=Astribot_S1 \
+    --ee='' \
     --visualization=false \
     --send_real_robot=true \
-    --image_transport=remote \
-    --image_server=tcp://192.168.0.11:6100 \
+    --image_transport=teleimager \
+    --image_server_address=192.168.0.11 \
+    --head_camera_zmq_port=6100 \
+    --head_camera_image_height=720 \
+    --head_camera_image_width=1280 \
+    --use_wrist_cameras=false \
+    --head_only_camera_fallback=true \
     --astribot_control_transport=remote \
-    --astribot_control_address=192.168.0.11 \
+    --astribot_control_server_address=192.168.0.11 \
     --astribot_control_port=6200 \
     --astribot_control_timeout_s=5 \
-    --astribot_interpolation_steps=4 \
-    --camera_features='{"observation.images.head":"front","observation.images.left":"left_wrist","observation.images.right":"right_wrist"}' \
-    --use_way_filter=true \
-    --use_wbc=false \
+    --astribot_remote_interpolation_steps=4 \
+    --camera_features='["observation.images.head","observation.images.left","observation.images.right"]' \
+    --astribot_control_way=filter \
+    --astribot_use_wbc=false \
     --ready_lift_m=0 \
-    --max_joint_delta=0.25 \
-    --max_arm_joint_delta=0.2 \
-    --max_dex3_delta=0.25 \
-    --max_linear_delta=0.1 \
-    --max_angular_delta=0.4 \
-    --max_chassis_velocity=0.2 \
-    --max_head_velocity=0.4 \
-    --policy_smooth_alpha=0.9 \
-    --max_tracking_joint_error=1.0 \
-    --track_timeout_s=8 \
+    --ready_max_joint_delta=0.25 \
+    --max_policy_arm_delta=0.080 \
+    --max_policy_ee_delta=10.0 \
+    --astribot_policy_smooth_alpha=0.5 \
+    --arm_tracking_error_limit=0.35 \
+    --slow_move_tracking_wait_timeout_s=8 \
     --policy_warmup_steps=5 \
+    --real_policy_warmup_steps=5 \
     --policy_inference_timeout_s=10 \
-    --action_log_dir=/home/jchen572/Code_file/RBM_lerobot/eval_action_logs/pi05_astribot_s1_16d_safe_test
+    --action_log_path=/home/jchen572/code_file/RBM_lerobot/eval_action_logs/pi05_astribot_s1_16d_head_only_safe_test

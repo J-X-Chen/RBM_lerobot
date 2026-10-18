@@ -1435,8 +1435,13 @@ def main() -> None:
         PROCESS_STOPPING.set()
         stop_event.set()
 
-    signal.signal(signal.SIGINT, _request_stop)
-    signal.signal(signal.SIGTERM, _request_stop)
+    def _install_stop_signal_handlers() -> None:
+        with contextlib.suppress(Exception):
+            signal.signal(signal.SIGINT, _request_stop)
+        with contextlib.suppress(Exception):
+            signal.signal(signal.SIGTERM, _request_stop)
+
+    _install_stop_signal_handlers()
 
     astribot = None
     subscriptions = []
@@ -1468,6 +1473,7 @@ def main() -> None:
                 high_control_rights=bool(args.high_control_rights),
                 node_name=args.node_name,
             )
+            _install_stop_signal_handlers()
             print("[astribot-image-service] Astribot SDK client constructed.", flush=True)
         else:
             print(
@@ -1475,6 +1481,7 @@ def main() -> None:
                 flush=True,
             )
             astribot = AstribotCameraClient(node_name=args.node_name)
+            _install_stop_signal_handlers()
 
         if not args.no_activate_camera:
             result = astribot.activate_camera()
@@ -1530,6 +1537,7 @@ def main() -> None:
                 replan_horizon=int(args.control_replan_horizon),
             )
             action_server.start()
+            _install_stop_signal_handlers()
 
         next_status_time = 0.0
         while not stop_event.is_set():
@@ -1540,6 +1548,8 @@ def main() -> None:
                     control_bridge.log_status()
                 next_status_time = now + float(args.status_interval_s)
             time.sleep(0.1)
+    except KeyboardInterrupt:
+        _request_stop(signal.SIGINT, None)
     finally:
         PROCESS_STOPPING.set()
         if action_server is not None:
@@ -1549,16 +1559,21 @@ def main() -> None:
         if control_bridge is not None:
             control_bridge.stop()
         bridge.stop()
-        if astribot is not None and args.deactivate_on_exit:
+        signal_requested = stop_signal["signum"] is not None
+        if astribot is not None and args.deactivate_on_exit and not signal_requested:
             with contextlib.suppress(Exception):
                 astribot.deactivate_camera()
-        if astribot is not None:
+        if astribot is not None and not signal_requested:
             shutdown_astribot_client(astribot)
+        elif astribot is not None:
+            print(
+                "[astribot-image-service] signal stop: skipping SDK shutdown to avoid ROS teardown hang.",
+                flush=True,
+            )
         print("[astribot-image-service] stopped.", flush=True)
-        if stop_signal["signum"] is not None:
+        if signal_requested:
             os._exit(0)
 
 
 if __name__ == "__main__":
     main()
-

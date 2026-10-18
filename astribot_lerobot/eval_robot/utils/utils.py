@@ -358,6 +358,7 @@ class EvalRealConfig:
     wrist_camera_image_height: int = 480
     wrist_camera_image_width: int = 640
     use_wrist_cameras: bool = False
+    head_only_camera_fallback: bool = False
     head_camera_zmq_port: int = 55555
     left_wrist_camera_zmq_port: int = 55556
     right_wrist_camera_zmq_port: int = 55557

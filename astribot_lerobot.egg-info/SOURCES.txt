@@ -751,6 +751,7 @@ astribot_lerobot/lerobot/tests/teleoperators/test_rebot_102_leader.py
 astribot_lerobot/lerobot/tests/training/test_multi_gpu.py
 astribot_lerobot/lerobot/tests/training/test_visual_validation.py
 astribot_lerobot/lerobot/tests/transport/test_transport_utils.py
+astribot_lerobot/lerobot/tests/utils/test_astribot_action.py
 astribot_lerobot/lerobot/tests/utils/test_collate.py
 astribot_lerobot/lerobot/tests/utils/test_dex3_action.py
 astribot_lerobot/lerobot/tests/utils/test_encoding_utils.py

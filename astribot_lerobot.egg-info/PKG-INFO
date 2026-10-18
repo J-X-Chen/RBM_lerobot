@@ -227,6 +227,15 @@ For Unitree Dex3 controller datasets that use one fixed grasp shape, add
 The policy action becomes 16D (14 arm + 2 grip), while `observation.state` remains 28D.
 `eval_g1.py` and `eval_g1_async.py` automatically expand a 16D checkpoint back to 28D before robot control.
 
+For Astribot S1 datasets, choose the training view explicitly:
+`--dataset.astribot_action_view=full` trains all 25 dimensions, while
+`--dataset.astribot_action_view=arms_grippers` trains the 16D left/right arm plus
+gripper view. The `arms_grippers` view slices 25D datasets at runtime, and uses
+already-16D datasets directly. During S1 eval, pass the matching
+`--astribot_action_view=full` or `--astribot_action_view=arms_grippers`; the 16D
+eval path expands commands back to 25D by locking chassis, torso, and head to
+the current robot pose.
+
 - `Train Act Policy` [Please refer to it in detail](https://github.com/huggingface/lerobot/blob/main/docs/source/act.mdx)
 
 ```bash
