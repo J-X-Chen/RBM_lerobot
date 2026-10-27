@@ -348,14 +348,17 @@ class TeleimagerImageClient:
                     continue
 
                 parts = socket.recv_multipart()
-                while socket.poll(timeout=0):
+                while self.running and socket.poll(timeout=0):
                     parts = socket.recv_multipart(flags=zmq.NOBLOCK)
 
+                if not self.running:
+                    break
                 image = self._decode_frame_parts(name, port, parts)
                 if image is None:
                     continue
 
-                self._copy_frame(name, image, target, x_slice=x_slice)
+                if self.running:
+                    self._copy_frame(name, image, target, x_slice=x_slice)
         except Exception as exc:
             if self.running:
                 print(f"[Teleimager Image Client] {name} receive loop failed on port {port}: {exc}")
@@ -419,6 +422,12 @@ class TeleimagerImageClient:
                 time.sleep(0.2)
         except KeyboardInterrupt:
             self.stop()
+
+        finally:
+            self.stop()
+            # Parent cleanup joins this supervisor before closing shared memory.
+            for thread in self._threads:
+                thread.join()
 
 
 if __name__ == "__main__":

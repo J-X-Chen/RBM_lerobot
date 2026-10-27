@@ -27,9 +27,15 @@ from contextlib import nullcontext
 from types import SimpleNamespace
 from typing import Any, Callable
 
-_LEROBOT_SRC = Path(__file__).resolve().parents[1] / "lerobot" / "src"
-if _LEROBOT_SRC.exists() and str(_LEROBOT_SRC) not in sys.path:
-    sys.path.insert(0, str(_LEROBOT_SRC))
+# Both robot clients use the shared library, including policies absent from the old forks.
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_LEROBOT_SRC = _PROJECT_ROOT / "lerobot" / "src"
+for _import_root in (_PROJECT_ROOT, _LEROBOT_SRC):
+    if _import_root.exists():
+        if str(_import_root) in sys.path:
+            sys.path.remove(str(_import_root))
+        sys.path.insert(0, str(_import_root))
+
 
 from lerobot.policies.factory import make_policy, make_pre_post_processors
 from lerobot.utils.device_utils import get_safe_torch_device
@@ -69,6 +75,10 @@ from astribot_lerobot.eval_robot.utils.utils import (
     to_scalar,
     EvalRealConfig,
 )
+from astribot_lerobot.eval_robot.utils.non_policy_joint_hold import NonPolicyJointHold
+from astribot_lerobot.eval_robot.utils.gripper_release_filter import GripperReleaseFilter
+from astribot_lerobot.eval_robot.utils.gripper_chunk_blend import GripperChunkBlend, starts_new_action_chunk
+from astribot_lerobot.eval_robot.utils.tracking_pacer import TrackingPacer
 try:
     from astribot_lerobot.eval_robot.utils.rerun_visualizer import RerunLogger, visualization_data
 except ModuleNotFoundError as exc:
@@ -306,9 +316,21 @@ def _clip_s1_embedded_grippers(
     arm_dof: int,
 ) -> np.ndarray:
     gripper_action = raw_arm_action[list(ASTRIBOT_S1_GRIPPER_INDICES)].copy()
+    if bool(getattr(cfg, "astribot_direct_gripper_action", False)):
+        return np.clip(gripper_action, 0.0, 100.0)
     if cfg.max_policy_ee_delta > 0:
         ee_delta_limit = float(cfg.max_policy_ee_delta)
         current_gripper = current_arm_q[list(ASTRIBOT_S1_GRIPPER_INDICES)]
+        if bool(getattr(cfg, "astribot_safe_control", False)):
+            # The server slews the combined gripper command. Feedback-relative
+            # clipping can deadlock at encoder/SDK deadband: a stationary jaw
+            # keeps every subsequent target within the same tiny interval.
+            reference = current_gripper
+            if prev_sent_action_np is not None and prev_sent_action_np.shape[0] >= arm_dof:
+                reference = prev_sent_action_np[:arm_dof][list(ASTRIBOT_S1_GRIPPER_INDICES)]
+            reference = np.clip(reference, 0.0, 100.0)
+            return np.clip(reference + np.clip(gripper_action - reference,
+                                              -ee_delta_limit, ee_delta_limit), 0.0, 100.0)
         gripper_action = current_gripper + np.clip(
             gripper_action - current_gripper,
             -ee_delta_limit,
@@ -3709,6 +3731,7 @@ def move_arm_to_pose_slowly(
     key_listener: KeyCommandListener | None = None,
     allow_q_interrupt: bool = True,
     trajectory_velocity_limit: float | None = None,
+    trajectory_duration_s: float = 0.0,
     wait_for_clearance_on_block: bool = False,
     settle_tolerance: float | None = None,
     snapshot_callback: Callable[[str], None] | None = None,
@@ -3722,6 +3745,10 @@ def move_arm_to_pose_slowly(
     max_delta = float(np.max(np.abs(controlled_delta)))
     max_delta_joint = int(np.argmax(np.abs(controlled_delta)))
     max_embedded_gripper_delta = _max_abs(embedded_gripper_delta)
+    safe_envelope = float(getattr(cfg, "astribot_safe_joint_envelope", 0.15))
+    if bool(getattr(cfg, "astribot_safe_control", False)) and max_delta > safe_envelope:
+        logger_mp.error("Safe mode refuses %s: initial alignment delta %.4f rad exceeds %.4f; no motion sent", label, max_delta, safe_envelope)
+        return False
 
     velocity_limit = (
         float(trajectory_velocity_limit)
@@ -3743,6 +3770,14 @@ def move_arm_to_pose_slowly(
             trajectory_time,
             max_embedded_gripper_delta / max(float(cfg.init_ee_velocity_limit), 1e-6),
         )
+    if trajectory_duration_s > 0:
+        # Cubic smoothstep peaks at 1.5*d/T velocity and 6*d/T^2
+        # acceleration. Match the dedicated server alignment backstops.
+        trajectory_time = max(trajectory_duration_s,
+                              1.5 * max_delta / 0.35,
+                              np.sqrt(6.0 * max_delta / 0.5),
+                              1.5 * max_embedded_gripper_delta / 10.0,
+                              np.sqrt(6.0 * max_embedded_gripper_delta / 20.0))
     steps = max(1, int(np.ceil(trajectory_time * motion_frequency)))
     start_arm_q = current_arm_q.copy()
     last_arm_cmd_q = current_arm_q.copy()
@@ -3777,6 +3812,10 @@ def move_arm_to_pose_slowly(
         str(getattr(cfg, "arm", "")).lower() == "astribot_s1"
         and target_arm_q.shape[0] == ASTRIBOT_S1_FULL_DIM
         and callable(move_dual_arm_to_pose)
+        and not bool(getattr(cfg, "astribot_safe_control", False))
+        and not bool(getattr(cfg, "astribot_g1_control", False))
+        and not bool(getattr(arm_ctrl, "require_g1_control", False))
+        and not bool(getattr(arm_ctrl, "require_safe_control", False))
     ):
         duration = max(trajectory_time, 0.2)
         logger_mp.info(
@@ -3962,6 +4001,11 @@ def move_arm_to_pose_slowly(
             logger_mp.info(f"Settling at {label}: max joint error {max_err:.4f} rad after {elapsed:.1f}s.")
             next_log_time = now + 2.0
 
+        if any((getattr(cfg, "astribot_g1_control", False), getattr(cfg, "astribot_safe_control", False),
+                getattr(arm_ctrl, "require_g1_control", False), getattr(arm_ctrl, "require_safe_control", False))):
+            # Keep the final target alive while the slower body joints settle;
+            # otherwise the service watchdog would replace it after five seconds.
+            arm_ctrl.ctrl_dual_arm(last_arm_cmd_q, last_tau)
         time.sleep(0.05)
 
 
@@ -4738,6 +4782,14 @@ def eval_policy(
     dataset_start_arm_pose = None
 
     def shutdown_robot() -> bool:
+        if cfg.astribot_safe_control:
+            logger_mp.error("Safe mode shutdown: disarm only; no return motion or gripper opening")
+            try:
+                arm_ctrl.disarm()
+                return True
+            except Exception as exc:
+                logger_mp.error("Disarm failed: %s; use physical emergency stop", exc)
+                return False
         if (
             is_astribot_s1_whole_body_run
             and cfg.lower_to_startup_on_quit
@@ -4876,6 +4928,8 @@ def eval_policy(
             supports_astribot_arm_gripper_policy
             and astribot_action_view == ASTRIBOT_S1_ACTION_VIEW_ARM_GRIPPER
         )
+        if cfg.astribot_lock_non_policy_joints and not uses_astribot_arm_gripper_policy:
+            raise ValueError("astribot_lock_non_policy_joints requires an Astribot S1 16D arms_grippers policy.")
         logger_mp.info(
             f"Policy dimension check: expected real-robot state/action dim {expected_policy_dim}; "
             f"policy state dim {policy_state_dim}; policy action dim {policy_action_dim}; "
@@ -4944,7 +4998,7 @@ def eval_policy(
                 f"{nominal_replan_s:.3f}s" if nominal_replan_s is not None else "unknown",
                 float(cfg.frequency),
             )
-            if policy_type in {"pi0", "pi05", "pi0_fast"} and policy_n_action_steps and int(policy_n_action_steps) > 10:
+            if policy_type in {"pi0", "pi05", "pi0_fast", "dm05"} and policy_n_action_steps and int(policy_n_action_steps) > 10:
                 logger_mp.warning(
                     "Policy n_action_steps=%s means the robot consumes a long open-loop action queue before "
                     "fresh image feedback is used. For more reactive real-robot eval, try "
@@ -4960,6 +5014,9 @@ def eval_policy(
                 policy_chunk_size,
                 getattr(policy, "_action_queue_steps", None),
             )
+
+        if cfg.astribot_safe_control:
+            q_key_action = "disarm and exit without return motion"
 
         key_listener.start()
         logger_mp.info(
@@ -5023,7 +5080,8 @@ def eval_policy(
             logger_mp.info(
                 "Captured Astribot S1 pre-r initial pose. On r, eval will move torso/arms/grippers/head "
                 "to the dataset first frame while keeping the wheeled chassis at the captured value; "
-                "on q, eval returns to this captured initial pose."
+                + ("safe mode: r is range-checked; q disarms without return motion."
+                 if cfg.astribot_safe_control else "on q, eval returns to this captured initial pose.")
             )
             _log_astribot_s1_pose_delta("Dataset first frame target", lowered_arm_pose, dataset_start_arm_pose)
         logger_mp.info(f"Startup/lowered arm pose captured:\n{lowered_arm_pose}")
@@ -5079,16 +5137,32 @@ def eval_policy(
             target_arm_pose = dataset_start_arm_pose if dataset_start_arm_pose is not None else init_arm_pose
             if is_astribot_s1_whole_body_run:
                 _log_astribot_s1_pose_delta(label, arm_ctrl.get_current_dual_arm_q(), target_arm_pose)
-            if not move_arm_to_pose_slowly(
-                cfg,
-                arm_ctrl,
-                arm_ik,
-                target_arm_pose,
-                "dataset first frame",
-                key_listener=key_listener,
-                settle_tolerance=cfg.dataset_start_tolerance,
-                snapshot_callback=capture_manual_snapshot,
-            ):
+            duration = float(cfg.astribot_alignment_duration_s)
+            timed_alignment = cfg.astribot_safe_control and cfg.astribot_g1_control and duration > 0
+            if timed_alignment:
+                arm_ctrl.set_safe_alignment(True)
+                logger_mp.info("Timed first-frame alignment: nominal %.1fs, command caps 0.35 rad/s and 0.5 rad/s^2; policy remains low-speed.", duration)
+            move_ok = False
+            try:
+                move_ok = move_arm_to_pose_slowly(
+                    cfg, arm_ctrl, arm_ik, target_arm_pose, "dataset first frame",
+                    key_listener=key_listener,
+                    settle_tolerance=cfg.dataset_start_tolerance,
+                    snapshot_callback=capture_manual_snapshot,
+                    trajectory_velocity_limit=0.35 if timed_alignment else None,
+                    trajectory_duration_s=duration if timed_alignment else 0.0,
+                )
+            finally:
+                if timed_alignment:
+                    if move_ok:
+                        try:
+                            arm_ctrl.set_safe_alignment(False)
+                        except Exception:
+                            arm_ctrl.disarm()
+                            raise
+                    else:
+                        arm_ctrl.disarm()
+            if not move_ok:
                 logger_mp.info(f"{label}: dataset first frame arm move did not complete.")
                 return False
             if cfg.ee and not move_ee_to_pose_slowly(
@@ -5104,13 +5178,31 @@ def eval_policy(
                 return False
             return True
 
+        def wait_for_eval_key(*keys: str) -> str:
+            if not cfg.astribot_safe_control:
+                return key_listener.wait_for(*keys)
+            next_heartbeat = 0.0
+            while True:
+                if key_listener.shutdown_requested:
+                    return "q"
+                key = key_listener.consume(*keys)
+                if key is not None:
+                    return key
+                if time.monotonic() >= next_heartbeat:
+                    # Refresh the LAST target, never chase measured drift.
+                    # The response also propagates a latched service fault now,
+                    # rather than waiting until the user next presses r/s.
+                    arm_ctrl.ctrl_dual_arm(arm_ctrl.q_target.copy())
+                    next_heartbeat = time.monotonic() + 0.25
+                time.sleep(0.05)
+
         def wait_for_policy_start(snapshot_label: str) -> bool:
             logger_mp.info(
                 "At dataset first frame. Press 's' to start policy, 'j' to save a current camera snapshot, "
                 f"'b' is ignored until policy is running, or 'q' to {q_key_action}."
             )
             while True:
-                key = key_listener.wait_for("s", "q", "j", "b")
+                key = wait_for_eval_key("s", "q", "j", "b")
                 if key == "q":
                     return False
                 if key == "j":
@@ -5158,7 +5250,7 @@ def eval_policy(
             f"'j' to save a current camera snapshot, or 'q' to {q_key_action}."
         )
         while True:
-            key = key_listener.wait_for("r", "q", "j", "b")
+            key = wait_for_eval_key("r", "q", "j", "b")
             if key == "q":
                 shutdown_done = shutdown_robot()
                 return
@@ -5300,6 +5392,8 @@ def eval_policy(
                     "attention_map_dir": getattr(cfg, "_attention_map_dir", None),
                     "policy_action_dim": int(policy_action_dim) if policy_action_dim is not None else None,
                     "astribot_action_view": astribot_action_view,
+                    "astribot_lock_non_policy_joints": cfg.astribot_lock_non_policy_joints,
+                    "astribot_g1_control": cfg.astribot_g1_control,
                     "policy_type": str(getattr(cfg.policy, "type", "") or ""),
                     "policy_n_action_steps": int(policy_n_action_steps)
                     if policy_n_action_steps is not None
@@ -5357,10 +5451,22 @@ def eval_policy(
         next_attention_map_time = time.perf_counter()
         next_attention_video_frame_time = next_attention_map_time
         attention_capture_pending = False
+        tracking_pacer = TrackingPacer() if cfg.astribot_adaptive_tracking else None
+        gripper_chunk_blend = (GripperChunkBlend(cfg.astribot_gripper_chunk_blend_steps)
+                               if cfg.astribot_gripper_chunk_blend_steps > 0 else None)
+        gripper_release_filter = (GripperReleaseFilter(cfg.astribot_gripper_release_confirm_s)
+                                  if cfg.astribot_gripper_release_confirm_s > 0 else None)
+        previous_policy_log_monotonic = None
         prev_raw_action_np = None
         prev_sent_action_np = None
+        locked_non_policy_pose = None
+        non_policy_hold = None
 
         def handle_back_request(trigger: str) -> bool:
+            nonlocal locked_non_policy_pose
+            nonlocal non_policy_hold
+            nonlocal previous_policy_log_monotonic
+            previous_policy_log_monotonic = None
             nonlocal prev_raw_action_np
             nonlocal prev_sent_action_np
             nonlocal next_policy_log_time
@@ -5385,6 +5491,12 @@ def eval_policy(
             clear_cached_eval_actions(policy)
             prev_raw_action_np = None
             prev_sent_action_np = None
+            if tracking_pacer is not None:
+                tracking_pacer.reset()
+            if gripper_chunk_blend is not None:
+                gripper_chunk_blend.reset()
+            if gripper_release_filter is not None:
+                gripper_release_filter.reset()
             attention_capture_pending = False
 
             if not move_to_dataset_first_frame("Back requested"):
@@ -5394,6 +5506,8 @@ def eval_policy(
                 return False
             if not wait_for_policy_start("pre_restart"):
                 return False
+            locked_non_policy_pose = None
+            non_policy_hold = None
 
             now = time.perf_counter()
             next_policy_log_time = now
@@ -5402,6 +5516,12 @@ def eval_policy(
             attention_capture_pending = False
             prev_raw_action_np = None
             prev_sent_action_np = None
+            if tracking_pacer is not None:
+                tracking_pacer.reset()
+            if gripper_chunk_blend is not None:
+                gripper_chunk_blend.reset()
+            if gripper_release_filter is not None:
+                gripper_release_filter.reset()
             if action_log_file is not None:
                 write_action_log(
                     action_log_file,
@@ -5438,6 +5558,48 @@ def eval_policy(
             observation = filter_observation_camera_features(cfg, observation)
             observation = ensure_runtime_thermal_input(cfg, observation, runtime_thermal_input_adapter)
             current_arm_q = require_finite_vector("current arm q", current_arm_q, arm_dof)
+            if tracking_pacer is not None:
+                status = getattr(arm_ctrl, "last_control_status", None) or {}
+                if not status.get("safe_command_tracking", False):
+                    raise RuntimeError("Adaptive tracking requires S1 --safe-command-tracking; update and restart service")
+                if prev_sent_action_np is not None:
+                    arm_indices = np.r_[7:14, 15:22]
+                    lag = float(np.max(np.abs(prev_sent_action_np[arm_indices] - current_arm_q[arm_indices])))
+                    if tracking_pacer.wait(lag, time.monotonic()):
+                        # Refresh the fixed target for the watchdog. Never consume
+                        # another queued policy action or advance gripper filters.
+                        arm_ctrl.ctrl_dual_arm(prev_sent_action_np[:arm_dof].copy())
+                        if action_log_file is not None:
+                            write_action_log(action_log_file, {
+                                "type": "tracking_wait", "idx": int(idx), "time_s": time.time(),
+                                "arm_lag": lag, "current_arm_q": _json_array(current_arm_q),
+                                "held_action": _json_array(prev_sent_action_np),
+                                "server_tracking": status.get("tracking_diagnostic")})
+                        time.sleep(max(0, 1.0 / cfg.frequency - (time.perf_counter() - loop_start_time)))
+                        continue
+            if cfg.astribot_lock_non_policy_joints and locked_non_policy_pose is None:
+                locked_non_policy_pose = current_arm_q.copy()
+                non_policy_hold = NonPolicyJointHold(current_arm_q, time.perf_counter())
+                logger_mp.info(
+                    "Holding non-policy joint targets at rollout start: chassis=%s, torso=%s, head=%s",
+                    locked_non_policy_pose[:3].tolist(),
+                    locked_non_policy_pose[3:7].tolist(),
+                    locked_non_policy_pose[23:25].tolist(),
+                )
+            if non_policy_hold is not None and not cfg.astribot_safe_control:
+                previous_cycle = non_policy_hold.cycle
+                was_active = non_policy_hold.active
+                locked_non_policy_pose = non_policy_hold.update(current_arm_q, time.perf_counter())
+                if previous_cycle != non_policy_hold.cycle or was_active != non_policy_hold.active:
+                    logger_mp.info("Non-policy joint correction: %s", non_policy_hold.snapshot())
+                    if action_log_file is not None:
+                        write_action_log(action_log_file, {
+                            "type": "control_event",
+                            "event": "non_policy_joint_correction",
+                            "idx": int(idx),
+                            "time_s": time.time(),
+                            **non_policy_hold.snapshot(),
+                        })
             left_ee_state = right_ee_state = np.array([])
             if cfg.ee:
                 with ee_shared_mem["lock"]:
@@ -5493,6 +5655,11 @@ def eval_policy(
                 shutdown_done = shutdown_robot()
                 return
 
+            # Inspect the actual policy queue before prediction consumes/refills it.
+            # Do not infer chunk boundaries from idx: warmup/restarts clear queues.
+            new_gripper_chunk = False
+            if gripper_chunk_blend is not None:
+                new_gripper_chunk = starts_new_action_chunk(policy)
             # 2. Get Action from Policy
             inference_start_time = time.perf_counter()
             if attention_capture_enabled and inference_start_time >= next_attention_map_time:
@@ -5571,7 +5738,10 @@ def eval_policy(
                         f"got {policy_action_np.shape[0]}D."
                     )
                 astribot_arm_gripper_action_np = policy_action_np.copy()
-                policy_action_np = expand_astribot_s1_arm_gripper(policy_action_np, current_arm_q)
+                policy_action_np = expand_astribot_s1_arm_gripper(
+                    policy_action_np,
+                    locked_non_policy_pose if locked_non_policy_pose is not None else current_arm_q,
+                )
             raw_action_np = require_finite_vector("policy action", policy_action_np, expected_policy_dim)
             action_np = raw_action_np.copy()
             # 3. Execute Action
@@ -5615,6 +5785,14 @@ def eval_policy(
                     prev_sent_action_np,
                     arm_dof,
                 )
+                if gripper_chunk_blend is not None:
+                    gi = list(ASTRIBOT_S1_GRIPPER_INDICES)
+                    arm_action[gi] = gripper_chunk_blend.update(
+                        arm_action[gi], new_chunk=new_gripper_chunk,
+                        previous_sent=None if prev_sent_action_np is None else prev_sent_action_np[gi])
+                if gripper_release_filter is not None:
+                    gi = list(ASTRIBOT_S1_GRIPPER_INDICES)
+                    arm_action[gi] = gripper_release_filter.update(arm_action[gi], time.monotonic())
                 before_smoothing_arm_action = arm_action.copy()
                 arm_action = _smooth_s1_upper_body_action(
                     cfg,
@@ -5624,6 +5802,12 @@ def eval_policy(
                     arm_dof,
                 )
                 s1_policy_smoothing_applied = bool(_max_abs(arm_action - before_smoothing_arm_action) > 1e-6)
+                action_np[:arm_dof] = arm_action
+            if locked_non_policy_pose is not None:
+                # The hold controller already bounds correction speed/offset.
+                # Do not rebase its targets on feedback in the whole-body path.
+                arm_action[:7] = locked_non_policy_pose[:7]
+                arm_action[23:25] = locked_non_policy_pose[23:25]
                 action_np[:arm_dof] = arm_action
             arm_action = require_finite_vector("sent arm action", arm_action, arm_dof)
             tau = require_finite_vector("arm tau", arm_ik.solve_tau(arm_action), arm_dof)
@@ -5710,9 +5894,24 @@ def eval_policy(
             sent_action_step_delta = (
                 action_np - prev_sent_action_np if prev_sent_action_np is not None else np.array([])
             )
+            diagnostic_now = time.monotonic()
+            policy_step_interval_s = (None if previous_policy_log_monotonic is None
+                                      else diagnostic_now - previous_policy_log_monotonic)
+            previous_policy_log_monotonic = diagnostic_now
+            control_status = getattr(arm_ctrl, "last_control_status", None) or {}
             if action_log_file is not None and idx % action_log_every_n == 0:
                 record = {
+                    "policy_step_interval_s": policy_step_interval_s,
+                    "server_tracking": control_status.get("tracking_diagnostic"),
+                    "server_action_sequence": control_status.get("actions"),
+                    "server_tracking_sample_age_s": control_status.get("tracking_diagnostic_age_s"),
+                    "server_status_age_s": diagnostic_now - getattr(arm_ctrl, "last_control_status_received_monotonic", diagnostic_now),
                     "type": "policy_step",
+                    "rtc": (getattr(policy, "_eval_rtc_guidance").status
+                            if getattr(policy, "_eval_rtc_guidance", None) is not None else None),
+                    "gripper_chunk_blend": gripper_chunk_blend.status if gripper_chunk_blend is not None else None,
+                    "gripper_release_filter": gripper_release_filter.status if gripper_release_filter is not None else None,
+                    "non_policy_joint_hold": non_policy_hold.snapshot() if non_policy_hold is not None else None,
                     "idx": int(idx),
                     "time_s": time.time(),
                     "inference_elapsed_s": round(float(inference_elapsed), 6),
@@ -5792,9 +5991,14 @@ def eval_policy(
             if now >= next_policy_log_time:
                 msg = (
                     f"Policy step {idx}: inference {inference_elapsed:.3f}s, "
-                    f"raw arm delta max {float(np.max(np.abs(raw_arm_delta))):.4f} rad, "
-                    f"sent arm delta max {float(np.max(np.abs(clipped_arm_delta))):.4f} rad"
+                    f"raw arm delta max {_max_abs(_tracking_arm_delta(cfg, raw_arm_delta)):.4f} rad, "
+                    f"sent arm delta max {_max_abs(_tracking_arm_delta(cfg, clipped_arm_delta)):.4f} rad"
                 )
+                if is_astribot_s1_whole_body_run:
+                    gi = list(ASTRIBOT_S1_GRIPPER_INDICES)
+                    msg += (f", grippers L/R raw={np.round(raw_arm_action[gi], 2).tolist()}"
+                            f", sent={np.round(arm_action[gi], 2).tolist()}"
+                            f", measured={np.round(current_arm_q[gi], 2).tolist()}")
                 if cfg.ee:
                     msg += (
                         f", raw ee delta max "
@@ -5802,6 +6006,14 @@ def eval_policy(
                         f"sent ee delta max "
                         f"{max(float(np.max(np.abs(sent_left_delta))), float(np.max(np.abs(sent_right_delta)))):.4f} rad"
                     )
+                diagnostic = control_status.get("tracking_diagnostic")
+                if diagnostic is not None:
+                    msg += (f", server target->cmd gap={diagnostic['arm_target_command_gap_max']:.4f} rad"
+                            f", cmd->feedback gap={diagnostic['arm_command_feedback_gap_max']:.4f} rad"
+                            f", cycle={diagnostic['cycle_elapsed_s'] * 1000:.1f}ms"
+                            f", SDK={diagnostic['sdk_call_elapsed_s'] * 1000:.1f}ms")
+                elif cfg.astribot_safe_control:
+                    msg += ", server tracking diagnostics unavailable (update/restart service)"
                 logger_mp.info(msg)
                 next_policy_log_time = now + 2.0
 
@@ -5818,8 +6030,8 @@ def eval_policy(
         logger_mp.info(f"An error occurred: {e}")
         key_listener.shutdown_requested = True
     finally:
-        if not shutdown_done and arm_ctrl is not None and arm_ik is not None and key_listener.shutdown_requested:
-            if ready_arm_pose is not None and lowered_arm_pose is not None:
+        if not shutdown_done and arm_ctrl is not None and (cfg.astribot_safe_control or (arm_ik is not None and key_listener.shutdown_requested)):
+            if cfg.astribot_safe_control or (ready_arm_pose is not None and lowered_arm_pose is not None):
                 shutdown_robot()
             else:
                 try:
@@ -5838,6 +6050,65 @@ def eval_policy(
 
 @parser.wrap()
 def eval_main(cfg: EvalRealConfig):
+    if getattr(cfg, "astribot_rtc", False):
+        if not (cfg.astribot_safe_control and cfg.astribot_g1_control
+                and getattr(cfg.policy, "type", None) == "pi05" and not cfg.use_dataset):
+            raise ValueError("astribot_rtc requires live safe G1 PI05 evaluation")
+        if int(cfg.policy.n_action_steps) <= 5:
+            raise ValueError("astribot_rtc requires policy.n_action_steps > 5")
+    if cfg.astribot_adaptive_tracking:
+        if not (cfg.astribot_safe_control and cfg.astribot_g1_control and cfg.arm.lower() == "astribot_s1"):
+            raise ValueError("Adaptive tracking requires safe G1 Astribot S1")
+        if not np.isfinite(cfg.frequency) or cfg.frequency <= 0:
+            raise ValueError("Adaptive tracking requires positive frequency")
+
+    if cfg.astribot_gripper_chunk_blend_steps < 0:
+        raise ValueError("astribot_gripper_chunk_blend_steps must be nonnegative")
+    if cfg.astribot_gripper_chunk_blend_steps > 0:
+        if not (cfg.astribot_safe_control and cfg.astribot_g1_control and cfg.astribot_direct_gripper_action):
+            raise ValueError("Gripper chunk blending requires safe G1 direct gripper mode")
+        if getattr(cfg.policy, "type", None) not in {"pi05", "dm05"} or cfg.use_dataset:
+            raise ValueError("Gripper chunk blending requires live PI05 or DM05 inference")
+
+    if not np.isfinite(cfg.astribot_gripper_release_confirm_s) or cfg.astribot_gripper_release_confirm_s < 0:
+        raise ValueError("astribot_gripper_release_confirm_s must be finite and nonnegative")
+    if cfg.astribot_gripper_release_confirm_s > 0 and not (cfg.astribot_safe_control and cfg.astribot_g1_control and cfg.astribot_direct_gripper_action):
+        raise ValueError("Gripper release confirmation requires safe G1 direct gripper mode")
+    if cfg.astribot_direct_gripper_action and not (cfg.astribot_safe_control and cfg.astribot_g1_control):
+        raise ValueError("Direct gripper action requires safe G1 combined control")
+    if not np.isfinite(cfg.astribot_alignment_duration_s) or cfg.astribot_alignment_duration_s < 0:
+        raise ValueError("astribot_alignment_duration_s must be finite and nonnegative")
+    if cfg.astribot_alignment_duration_s > 0 and not (cfg.astribot_safe_control and cfg.astribot_g1_control):
+        raise ValueError("Timed alignment requires safe G1 combined control")
+    if cfg.astribot_safe_control:
+        if not np.isfinite(cfg.astribot_safe_policy_velocity) or cfg.astribot_safe_policy_velocity <= 0:
+            raise ValueError("astribot_safe_policy_velocity must be finite and positive")
+        if not np.isfinite(cfg.astribot_safe_joint_envelope) or cfg.astribot_safe_joint_envelope <= 0:
+            raise ValueError("astribot_safe_joint_envelope must be finite and positive")
+        if cfg.arm.lower() != "astribot_s1" or cfg.astribot_control_transport != "remote":
+            raise ValueError("Safe mode requires remote Astribot S1")
+        cfg.astribot_control_way = "direct" if cfg.astribot_g1_control else "filter"
+        cfg.astribot_control_reconnect = False
+        cfg.astribot_remote_interpolation_steps = 1
+        cfg.astribot_policy_smooth_alpha = 0.0
+        cfg.lower_to_startup_on_quit = False
+        cfg.open_ee_on_quit = False
+        cfg.arm_low_level_velocity_limit = min(cfg.arm_low_level_velocity_limit, cfg.astribot_safe_policy_velocity)
+        cfg.arm_velocity_limit = min(cfg.arm_velocity_limit, 0.02)
+        cfg.ready_arm_velocity_limit = min(cfg.ready_arm_velocity_limit, 0.02)
+        if not np.isfinite(cfg.max_policy_arm_delta) or cfg.max_policy_arm_delta <= 0:
+            raise ValueError("Safe mode requires a positive finite max_policy_arm_delta")
+        cfg.max_policy_arm_delta = min(cfg.max_policy_arm_delta, 0.10 if cfg.astribot_g1_control else 0.08)
+        cfg.max_policy_ee_delta = 0.0 if cfg.astribot_direct_gripper_action else 1.0
+        cfg.astribot_lock_non_policy_joints = True
+        if cfg.astribot_g1_control:
+            logging.info("Safe G1-style: feedback tracking with combined body/gripper direct commands; all safe limits retained.")
+    if cfg.astribot_g1_control:
+        if cfg.arm.lower() != "astribot_s1" or cfg.astribot_control_transport not in {"remote", "tcp", "s1", "s1_bridge"}:
+            raise ValueError("astribot_g1_control requires remote Astribot S1 control")
+        cfg.astribot_remote_interpolation_steps = 1
+        cfg.astribot_policy_smooth_alpha = 0.0
+        logging.info("G1-style S1 control: no client interpolation/smoothing; server feedback tracking required.")
     if (cfg.send_real_robot or cfg.save_attention_maps) and getattr(cfg.policy, "compile_model", False):
         logging.warning(
             "Disabling torch.compile for eval. "
@@ -5877,8 +6148,20 @@ def eval_main(cfg: EvalRealConfig):
     )
 
     logging.info("Making policy.")
-    policy = make_policy(cfg=cfg.policy, ds_meta=dataset.meta, rename_map=cfg.rename_map)
+    policy = make_policy(
+        cfg=cfg.policy,
+        ds_meta=dataset.meta,
+        rename_map=cfg.rename_map,
+        preserve_checkpoint_features=cfg.policy.type in {"pi05", "dm05"},
+    )
     policy.eval()
+
+    if getattr(cfg, "astribot_rtc", False):
+        from astribot_lerobot.eval_robot.utils.rtc_guidance import configure_rtc_guidance
+
+        configure_rtc_guidance(policy)
+        logging.info("S1 RTC guided_sync enabled: overlap=5 actions, guidance=1.0; "
+                     "synchronous prediction (no latency compensation), existing safety limits retained.")
 
     preprocessor_overrides = {
         "device_processor": {"device": cfg.policy.device},

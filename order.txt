@@ -7,6 +7,24 @@ task: Select the red cup and place it on the black coaster
 
 Both PI0.5 runs below are full-parameter finetuning.
 
+训练环境准备（只需执行一次；不会由本文自动执行）：
+cd /home/jchen572/code_file/RBM_lerobot
+conda activate s1_lerobot
+python -m pip install -e './lerobot[training,pi]'
+python -c 'import lerobot, torch; print(lerobot.__file__); print("CUDA:", torch.cuda.is_available())'
+nvidia-smi -L
+
+训练必须显示根目录 lerobot/src 路径并能访问 CUDA。
+下面保留 CUDA_VISIBLE_DEVICES=1；先确认训练机器存在编号 1 的 GPU，只有一张卡时改成 0。
+当前检查会话无法访问 NVIDIA 驱动，尚未验证完整 GPU 训练。
+pi05_base 权重和 tokenizer 未在项目本地搜索路径中找到；首次加载需要 Hugging Face 下载访问，
+或先准备本地模型并指定 --policy.pretrained_path=/absolute/path/to/pi05_base。
+可用 --dataset.video_backend=pyav 避免依赖 TorchCodec 解码库（下方训练命令已指定）。
+同步/异步 eval 入口已适配共享库；请在各评估环境安装根目录共享库及模型依赖，
+详见 lerobot/INTEGRATION_S1_G1.md 和 INTEGRATION_DM05_S1_G1.md。
+训练命令实际使用 red_cup_selection_left_s1；开头列出的 cup_selection_s1_action 目录也存在，
+请根据需要选择数据集，本文保留现有命令的数据选择。
+
 
 1. Start the Astribot image service
 
@@ -34,9 +52,9 @@ python -m astribot_image_service.server \
 
 2. Optional image client preview
 
-cd /home/jchen572/Code_file/RBM_lerobot
+cd /home/jchen572/code_file/RBM_lerobot
 conda activate lerobot
-export PYTHONPATH=/home/jchen572/Code_file/RBM_lerobot/astribot_lerobot/lerobot/src
+export PYTHONPATH=/home/jchen572/code_file/RBM_lerobot/lerobot/src
 python -m astribot_image_service.client \
     --host 192.168.0.11 \
     --head-port 6100 \
@@ -50,7 +68,7 @@ This uses keyboard gates: type c then Enter to connect, press r to move to the d
 
 cd /home/jchen572/code_file/RBM_lerobot
 conda activate astribot_lerobot
-export PYTHONPATH=/home/jchen572/code_file/RBM_lerobot/astribot_lerobot/lerobot/src
+export PYTHONPATH=/home/jchen572/code_file/RBM_lerobot/lerobot/src
 python astribot_lerobot/eval_robot/replay_robot.py \
     --repo_id=local/cup_selection_s1_action \
     --root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/red_cup_selection_left_s1 \
@@ -90,13 +108,14 @@ python astribot_lerobot/eval_robot/replay_robot.py \
 
 4. PI0.5 25D full-parameter finetune
 
-cd /home/jchen572/Code_file/RBM_lerobot
-conda activate astribot_lerobot
-export PYTHONPATH=/home/jchen572/Code_file/RBM_lerobot/astribot_lerobot/lerobot/src
-CUDA_VISIBLE_DEVICES=1 python astribot_lerobot/lerobot/src/lerobot/scripts/lerobot_train.py \
+cd /home/jchen572/code_file/RBM_lerobot
+conda activate s1_lerobot
+export PYTHONPATH=/home/jchen572/code_file/RBM_lerobot/lerobot/src
+CUDA_VISIBLE_DEVICES=1 python -m lerobot.scripts.lerobot_train \
     --dataset.repo_id=local/cup_selection_s1_action \
-    --dataset.root=/home/jchen572/Code_file/RBM_lerobot/lerobotv3_datasets/red_cup_selection_left_s1 \
+    --dataset.root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/red_cup_selection_left_s1 \
     --dataset.feature_names='["action","observation.state","observation.images.head","observation.images.left","observation.images.right"]' \
+    --dataset.video_backend=pyav \
     --dataset.astribot_action_view=full \
     --policy.type=pi05 \
     --policy.pretrained_path=lerobot/pi05_base \
@@ -105,7 +124,7 @@ CUDA_VISIBLE_DEVICES=1 python astribot_lerobot/lerobot/src/lerobot/scripts/lerob
     --policy.dtype=bfloat16 \
     --policy.device=cuda \
     --policy.push_to_hub=false \
-    --output_dir=/home/jchen572/Code_file/RBM_lerobot/astribot_lerobot/lerobot/outputs/pi05_astribot_s1_25d \
+    --output_dir=/home/jchen572/code_file/RBM_lerobot/lerobot/outputs/pi05_astribot_s1_25d \
     --job_name=pi05_astribot_s1_25d \
     --batch_size=16 \
     --steps=40000 \
@@ -116,12 +135,12 @@ CUDA_VISIBLE_DEVICES=1 python astribot_lerobot/lerobot/src/lerobot/scripts/lerob
 
 5. PI0.5 16D full-parameter finetune
 
-cd /home/jchen572/Code_file/RBM_lerobot
-conda activate astribot_lerobot
-export PYTHONPATH=/home/jchen572/Code_file/RBM_lerobot/astribot_lerobot/lerobot/src
-CUDA_VISIBLE_DEVICES=1 python astribot_lerobot/lerobot/src/lerobot/scripts/lerobot_train.py \
+cd /home/jchen572/code_file/RBM_lerobot
+conda activate s1_lerobot
+export PYTHONPATH=/home/jchen572/code_file/RBM_lerobot/lerobot/src
+CUDA_VISIBLE_DEVICES=1 python -m lerobot.scripts.lerobot_train \
     --dataset.repo_id=local/cup_selection_s1_action \
-    --dataset.root=/home/jchen572/Code_file/RBM_lerobot/lerobotv3_datasets/red_cup_selection_left_s1 \
+    --dataset.root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/red_cup_selection_left_s1 \
     --dataset.feature_names='["action","observation.state","observation.images.head","observation.images.left","observation.images.right"]' \
     --dataset.astribot_action_view=arms_grippers \
     --policy.type=pi05 \
@@ -131,7 +150,7 @@ CUDA_VISIBLE_DEVICES=1 python astribot_lerobot/lerobot/src/lerobot/scripts/lerob
     --policy.dtype=bfloat16 \
     --policy.device=cuda \
     --policy.push_to_hub=false \
-    --output_dir=/home/jchen572/Code_file/RBM_lerobot/astribot_lerobot/lerobot/outputs/pi05_astribot_s1_16d \
+    --output_dir=/home/jchen572/code_file/RBM_lerobot/lerobot/outputs/pi05_astribot_s1_16d \
     --job_name=pi05_astribot_s1_16d \
     --batch_size=16 \
     --steps=40000 \
@@ -144,7 +163,7 @@ CUDA_VISIBLE_DEVICES=1 python astribot_lerobot/lerobot/src/lerobot/scripts/lerob
 
 cd /home/jchen572/code_file/RBM_lerobot
 conda activate astribot_lerobot
-export PYTHONPATH=/home/jchen572/code_file/RBM_lerobot/astribot_lerobot/lerobot/src
+export PYTHONPATH=/home/jchen572/code_file/RBM_lerobot/lerobot/src
 CUDA_VISIBLE_DEVICES=1 python astribot_lerobot/eval_robot/eval_s1.py \
     --policy.path=/home/jchen572/code_file/RBM_lerobot/cjx_checkpoints/104psimple_s1_pi05_25d \
     --policy.n_action_steps=4 \
@@ -193,16 +212,17 @@ CUDA_VISIBLE_DEVICES=1 python astribot_lerobot/eval_robot/eval_s1.py \
 
 cd /home/jchen572/code_file/RBM_lerobot
 conda activate astribot_lerobot
-export PYTHONPATH=/home/jchen572/Code_file/RBM_lerobot/astribot_lerobot/lerobot/src
+export PYTHONPATH=/home/jchen572/code_file/RBM_lerobot/lerobot/src
 
 CUDA_VISIBLE_DEVICES=0 python astribot_lerobot/eval_robot/eval_s1.py \
-    --policy.path=/home/jchen572/code_file/RBM_lerobot/cjx_checkpoints/103psimple_s1_pi05_16d \
-    --policy.n_action_steps=4 \
+    --policy.path=./lerobot/outputs/pi05_astribot_s1_red_cup_16d/checkpoints/025000/pretrained_model \
+    --policy.n_action_steps=50 \
+    --astribot_lock_non_policy_joints=true \
     --repo_id=local/cup_selection_s1_action \
-    --root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/red_cup_selection_left_s1 \
-    --task="Select the red cup and place it on the black coaster" \
+    --root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/lerobotv3_red_cup_only \
+    --task="123" \
     --astribot_action_view=arms_grippers \
-    --episodes=1 \
+    --episodes=0 \
     --frequency=30 \
     --arm=Astribot_S1 \
     --ee='' \
@@ -243,7 +263,7 @@ CUDA_VISIBLE_DEVICES=0 python astribot_lerobot/eval_robot/eval_s1.py \
 
 cd /home/jchen572/code_file/RBM_lerobot
 conda activate astribot_lerobot
-export PYTHONPATH=/home/jchen572/Code_file/RBM_lerobot/astribot_lerobot/lerobot/src
+export PYTHONPATH=/home/jchen572/code_file/RBM_lerobot/lerobot/src
 
 CUDA_VISIBLE_DEVICES=0 python astribot_lerobot/eval_robot/eval_s1.py \
     --policy.path=/home/jchen572/code_file/RBM_lerobot/cjx_checkpoints/105psimple_s1_pi05_16d_head_only \
@@ -284,3 +304,678 @@ CUDA_VISIBLE_DEVICES=0 python astribot_lerobot/eval_robot/eval_s1.py \
     --real_policy_warmup_steps=5 \
     --policy_inference_timeout_s=10 \
     --action_log_path=/home/jchen572/code_file/RBM_lerobot/eval_action_logs/pi05_astribot_s1_16d_head_only_safe_test
+
+
+9. DM0.5 shared training setup
+
+DM0.5 的 policy 名称为 dm05，不是 pi05；不能直接套用 PI0.5 的 gradient_checkpointing 参数。
+使用已转换的 LeRobot 基础模型 lerobot/dm05_base，或包含 config.json、model.safetensors、
+policy_preprocessor.json、policy_postprocessor.json 和 dm05_processor/ 的本地目录。
+训练前在有可用 GPU 的机器执行环境安装；这里不自动下载或启动训练：
+
+cd /home/jchen572/code_file/RBM_lerobot
+conda activate s1_lerobot
+python -m pip install -e './lerobot[training,pi,dm05]'
+export PYTHONPATH=/home/jchen572/code_file/RBM_lerobot/lerobot/src
+
+
+10. DM0.5 Astribot S1 25D training
+
+CUDA_VISIBLE_DEVICES=0 python -m lerobot.scripts.lerobot_train \
+    --dataset.repo_id=local/cup_selection_s1_action \
+    --dataset.root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/red_cup_selection_left_s1 \
+    --dataset.feature_names='["action","observation.state","observation.images.head","observation.images.left","observation.images.right"]' \
+    --dataset.video_backend=pyav \
+    --dataset.astribot_action_view=full \
+    --policy.path=lerobot/dm05_base \
+    --policy.image_keys='["observation.images.head","observation.images.left","observation.images.right"]' \
+    --policy.use_relative_actions=false \
+    --policy.chunk_size=50 \
+    --policy.n_action_steps=4 \
+    --policy.vlm_gradient_checkpointing=true \
+    --policy.ae_gradient_checkpointing=true \
+    --policy.freeze_vlm_embedding=false \
+    --policy.compile_model=false \
+    --policy.dtype=bfloat16 \
+    --policy.device=cuda \
+    --policy.push_to_hub=false \
+    --output_dir=/home/jchen572/code_file/RBM_lerobot/lerobot/outputs/dm05_s1_25d \
+    --job_name=dm05_s1_25d \
+    --batch_size=1 \
+    --steps=40000 \
+    --save_freq=20000 \
+    --wandb.enable=false
+
+batch_size=1 仅作为起点，实际显存需求需要在训练 GPU 上验证。
+
+
+11. DM0.5 Astribot S1 16D training
+
+先执行第 9 节环境设置。arms_grippers 将 S1 的 state/action 从 25D 同步转换为双臂与夹爪的 16D。
+
+CUDA_VISIBLE_DEVICES=0 python -m lerobot.scripts.lerobot_train \
+    --dataset.repo_id=local/cup_selection_s1_action \
+    --dataset.root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/lerobotv3_red_cup_only \
+    --dataset.feature_names='["action","observation.state","observation.images.head","observation.images.left","observation.images.right"]' \
+    --dataset.astribot_action_view=arms_grippers \
+    --policy.path=lerobot/dm05_base \
+    --policy.image_keys='["observation.images.head","observation.images.left","observation.images.right"]' \
+    --policy.use_relative_actions=false \
+    --policy.chunk_size=50 \
+    --policy.n_action_steps=4 \
+    --policy.vlm_gradient_checkpointing=true \
+    --policy.ae_gradient_checkpointing=true \
+    --policy.freeze_vlm_embedding=false \
+    --policy.compile_model=false \
+    --policy.dtype=bfloat16 \
+    --policy.device=cuda \
+    --policy.push_to_hub=false \
+    --output_dir=/home/jchen572/code_file/RBM_lerobot/lerobot/outputs/dm05_s1_red_cup_16d \
+    --job_name=dm05_s1_red_cup_16d \
+    --batch_size=8 \
+    --steps=25000 \
+    --save_freq=25000 \
+    --wandb.enable=false
+
+
+12. DM0.5 Unitree G1 Dex3 training
+
+先将 G1_DATASET_ROOT 替换为真实的 G1 数据集目录；不会把 S1 数据当作 G1 训练。
+不指定 image_keys 时，DM0.5 从数据集取得相机名并将其保存到 checkpoint。
+
+G1_DATASET_ROOT=/absolute/path/to/g1_dataset
+CUDA_VISIBLE_DEVICES=0 python -m lerobot.scripts.lerobot_train \
+    --dataset.repo_id=local/g1 \
+    --dataset.root="$G1_DATASET_ROOT" \
+    --dataset.video_backend=pyav \
+    --dataset.compress_dex3_actions=true \
+    --policy.path=lerobot/dm05_base \
+    --policy.use_relative_actions=false \
+    --policy.chunk_size=50 \
+    --policy.n_action_steps=4 \
+    --policy.vlm_gradient_checkpointing=true \
+    --policy.ae_gradient_checkpointing=true \
+    --policy.freeze_vlm_embedding=false \
+    --policy.compile_model=false \
+    --policy.dtype=bfloat16 \
+    --policy.device=cuda \
+    --policy.push_to_hub=false \
+    --output_dir=/home/jchen572/code_file/RBM_lerobot/lerobot/outputs/dm05_g1_dex3_16d \
+    --job_name=dm05_g1_dex3_16d \
+    --batch_size=1 \
+    --steps=40000 \
+    --save_freq=20000 \
+    --wandb.enable=false
+
+上述命令面向 28D Dex3 数据，压缩后 action=16D、state=28D。
+原生 28D 动作使用 compress_dex3_actions=false；忽略手部目标使用 ignore。
+G1 Dex3 压缩模式不要启用 use_relative_actions：DM0.5 相对动作要求 state/action 维度相同。
+
+
+13. DM0.5 evaluation
+
+两套同步和异步 eval 入口现在均优先加载根目录 lerobot，旧库存在也不会抢占这些入口。
+各本体评估环境需要安装 './lerobot[dm05]' 并保留原本的机器人 SDK/图像传输依赖。
+DM05 的相机名、顺序、动作维度和归一化统计量从训练 checkpoint 读取。
+
+S1 红杯 16D：使用已训练的 DM05 025000 checkpoint；数据集、相机和动作维度与训练一致。
+下面沿用第 7 节的控制参数以便对比，n_action_steps=50 显式覆盖 checkpoint 保存的 4。
+固定关节周期校正目前仅支持同步 eval_s1.py，不能直接换成异步入口。
+
+cd /home/jchen572/code_file/RBM_lerobot
+conda activate s1_lerobot
+export PYTHONPATH=/home/jchen572/code_file/RBM_lerobot/lerobot/src
+
+CUDA_VISIBLE_DEVICES=0 python astribot_lerobot/eval_robot/eval_s1.py \
+    --policy.path=./lerobot/outputs/dm05_s1_red_cup_16d/checkpoints/025000/pretrained_model \
+    --policy.n_action_steps=50 \
+    --astribot_lock_non_policy_joints=true \
+    --repo_id=local/cup_selection_s1_action \
+    --root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/lerobotv3_red_cup_only \
+    --task="123" \
+    --astribot_action_view=arms_grippers \
+    --episodes=0 \
+    --frequency=30 \
+    --arm=Astribot_S1 \
+    --ee='' \
+    --visualization=false \
+    --send_real_robot=true \
+    --image_transport=teleimager \
+    --image_server_address=192.168.0.11 \
+    --head_camera_zmq_port=6100 \
+    --left_wrist_camera_zmq_port=6101 \
+    --right_wrist_camera_zmq_port=6102 \
+    --head_camera_image_height=720 \
+    --head_camera_image_width=1280 \
+    --wrist_camera_image_height=360 \
+    --wrist_camera_image_width=640 \
+    --use_wrist_cameras=true \
+    --astribot_control_transport=remote \
+    --astribot_control_server_address=192.168.0.11 \
+    --astribot_control_port=6200 \
+    --astribot_control_timeout_s=5 \
+    --astribot_remote_interpolation_steps=4 \
+    --camera_features='["observation.images.head","observation.images.left","observation.images.right"]' \
+    --astribot_control_way=filter \
+    --astribot_use_wbc=false \
+    --ready_lift_m=0 \
+    --ready_max_joint_delta=0.25 \
+    --max_policy_arm_delta=0.080 \
+    --max_policy_ee_delta=10.0 \
+    --astribot_policy_smooth_alpha=0.5 \
+    --arm_tracking_error_limit=0.35 \
+    --slow_move_tracking_wait_timeout_s=8 \
+    --policy_warmup_steps=5 \
+    --real_policy_warmup_steps=5 \
+    --policy_inference_timeout_s=10 \
+    --action_log_path=/home/jchen572/code_file/RBM_lerobot/eval_action_logs/dm05_astribot_s1_16d_safe_test
+
+S1 25D：使用第 10 节对应的 checkpoints/040000/pretrained_model，
+astribot_action_view=full，astribot_lock_non_policy_joints=false，并使用其训练数据集。
+
+G1：使用 unitree_lerobot/eval_robot/eval_g1.py 或 eval_g1_async.py，
+policy.path 指向 DM05 G1 checkpoint，arm=G1_29、ee=dex3，
+repo_id/root 和 camera_features 必须对应 G1 数据集及相机配置。
+实机连接、控制频率等继续使用本体原有配置。
+
+完整说明及验证边界见 lerobot/INTEGRATION_DM05_S1_G1.md。
+
+
+14. S1 PI0.5 / DM0.5 normalization audit and dataset repair
+
+对原始 parquet 的全部 state/action 数值逐维检查，不加载模型、不连接机器人、不上传数据。
+--repair-dataset-stats 会先备份 meta/stats.json，再精确重算全局数值统计；不修改 checkpoint。
+2026-10-20 已修复红杯数据统计。旧 PI05/DM05 025000 checkpoint 仍包含旧统计。
+重新训练请从基础模型开始并使用新的 output_dir，不要覆盖旧模型，也不要仅替换旧 checkpoint 的统计。
+训练使用的 dataset.root 必须是下面的红杯数据目录；resume 会保留旧 checkpoint 统计。
+
+cd /home/jchen572/code_file/RBM_lerobot
+conda activate s1_lerobot
+export PYTHONPATH=/home/jchen572/code_file/RBM_lerobot/lerobot/src
+
+python -m lerobot.scripts.audit_s1_normalization \
+    --root=./lerobotv3_datasets/lerobotv3_red_cup_only \
+    --checkpoint=./lerobot/outputs/pi05_astribot_s1_red_cup_16d/checkpoints/025000/pretrained_model \
+    --checkpoint=./lerobot/outputs/dm05_s1_red_cup_16d/checkpoints/025000/pretrained_model \
+    --report=./eval_action_logs/normalization_audit/red_cup_pi05_dm05_recheck.json
+
+其他/重新生成的数据集如需修复，在审计命令末尾添加 --repair-dataset-stats。
+
+
+15. Retrain S1 red-cup 16D with corrected normalization (2026-10-21)
+
+PI05 与 G1 PI05 使用相同的 QUANTILES 归一化/反归一化公式。
+S1 使用第 14 节按原始帧修复的统计；不复用旧 025000 checkpoint，不使用 resume。
+G1 的 Dex3 压缩动作路径会重算动作统计；不能把 G1 的统计数值直接用于 S1。
+DM05 保留原模型的 norm_clip=true；正确统计下左右夹爪的 q99=40，不再被压到 16/24。
+新输出目录带 normfix 后缀；两条训练命令分别执行，不要同时占用同一张 GPU。
+训练数据仍是 30 FPS；实机 frequency=10 的效果不要求改动训练数据时间戳。
+
+cd /home/jchen572/code_file/RBM_lerobot
+conda activate s1_lerobot
+export PYTHONPATH=/home/jchen572/code_file/RBM_lerobot/lerobot/src
+
+先确认修复后的统计（输出 [40.0, 40.0]）：
+python -c 'import json; s=json.load(open("lerobotv3_datasets/lerobotv3_red_cup_only/meta/stats.json")); q=[s["action"]["q99"][i] for i in (14,22)]; print(q); assert all(abs(v-40)<1e-5 for v in q)'
+
+15.1 PI0.5：从 pi05_base 重新微调
+
+CUDA_VISIBLE_DEVICES=0 python -m lerobot.scripts.lerobot_train \
+    --dataset.repo_id=local/cup_selection_s1_action \
+    --dataset.root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/lerobotv3_red_cup_only \
+    --dataset.feature_names='["action","observation.state","observation.images.head","observation.images.left","observation.images.right"]' \
+    --dataset.video_backend=pyav \
+    --dataset.astribot_action_view=arms_grippers \
+    --policy.type=pi05 \
+    --policy.pretrained_path=lerobot/pi05_base \
+    --policy.use_relative_actions=false \
+    --policy.chunk_size=50 \
+    --policy.n_action_steps=50 \
+    --policy.gradient_checkpointing=true \
+    --policy.compile_model=false \
+    --policy.freeze_vision_encoder=false \
+    --policy.train_expert_only=false \
+    --policy.dtype=bfloat16 \
+    --policy.device=cuda \
+    --policy.push_to_hub=false \
+    --output_dir=/home/jchen572/code_file/RBM_lerobot/lerobot/outputs/pi05_s1_red_cup_16d_normfix \
+    --job_name=pi05_s1_red_cup_16d_normfix \
+    --batch_size=16 \
+    --steps=25000 \
+    --save_freq=25000 \
+    --wandb.enable=false
+
+15.2 DM0.5：从 dm05_base 重新微调
+
+CUDA_VISIBLE_DEVICES=1 python -m lerobot.scripts.lerobot_train \
+    --dataset.repo_id=local/cup_selection_s1_action \
+    --dataset.root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/lerobotv3_red_cup_only \
+    --dataset.feature_names='["action","observation.state","observation.images.head","observation.images.left","observation.images.right"]' \
+    --dataset.video_backend=pyav \
+    --dataset.astribot_action_view=arms_grippers \
+    --policy.path=lerobot/dm05_base \
+    --policy.image_keys='["observation.images.head","observation.images.left","observation.images.right"]' \
+    --policy.use_relative_actions=false \
+    --policy.norm_clip=true \
+    --policy.chunk_size=50 \
+    --policy.n_action_steps=50 \
+    --policy.vlm_gradient_checkpointing=true \
+    --policy.ae_gradient_checkpointing=true \
+    --policy.freeze_vlm_embedding=false \
+    --policy.compile_model=false \
+    --policy.dtype=bfloat16 \
+    --policy.device=cuda \
+    --policy.push_to_hub=false \
+    --output_dir=/home/jchen572/code_file/RBM_lerobot/lerobot/outputs/dm05_s1_red_cup_16d_normfix \
+    --job_name=dm05_s1_red_cup_16d_normfix \
+    --batch_size=8 \
+    --steps=25000 \
+    --save_freq=25000 \
+    --wandb.enable=false
+
+15.3 训练完成后审计新 checkpoint，确认训练实际保存了修复后的统计
+
+python -m lerobot.scripts.audit_s1_normalization \
+    --root=./lerobotv3_datasets/lerobotv3_red_cup_only \
+    --checkpoint=./lerobot/outputs/pi05_s1_red_cup_16d_normfix/checkpoints/025000/pretrained_model \
+    --checkpoint=./lerobot/outputs/dm05_s1_red_cup_16d_normfix/checkpoints/025000/pretrained_model \
+    --report=./eval_action_logs/normalization_audit/red_cup_normfix_trained.json
+
+只完成一个模型时，删除审计命令中另一个 --checkpoint 参数。
+测试时沿用第 7/13 节的硬件配置，policy.path 换成上面的对应 normfix checkpoint，
+action_log_path 换成单独的 normfix 日志目录。先保持同一模型对比时的控制参数一致。
+新目录不能与旧训练目录混用；显存不足时再减小 batch_size。
+
+
+16. S1 G1-style feedback tracking (STOP: 2026-10-22 实机异常，已禁用 execute-control)
+
+同步更新 S1 上的 astribot_image_service/server.py，然后重启服务。
+客户端开启 astribot_g1_control=true 后自动关闭额外平滑/远程插值，服务端必须为 g1 模式。
+保留 TCP 目标传输；服务端按反馈进行 14D 双臂统一比例限速，SDK 使用 direct。
+夹爪独立线程执行连续位置目标，不使用 50 阈值二值开合。
+躯干/头部每 20 秒的校正继续保留；底盘不由本服务发运动指令。
+这不是复制 G1 的电机 PD/力矩接口；S1 SDK 的实际跟踪频率与效果需实机验证。
+服务端 SDK 调用串行保护，线程频率为目标值，SDK 耗时可能使实际频率降低。
+2026-10-21 复查：新模型统计/接口已通过；服务端新增 5 秒断流保持与 SDK 故障锁存。
+故障时普通动作不自动解锁；检查原因后显式 hold_current 或重启服务。
+g1 模式禁止阻塞 move 请求；初始化/回位继续使用 eval 的逐步 ctrl_dual_arm 路径。
+注意：这是目标步进限制，不是碰撞保护或实际关节速度保证；首次上机先空载低速检查。
+服务端速度参数单位：双臂/躯干/头部 rad/s；夹爪为位置单位/s。
+建议先维持下面的速度限制，通过日志检查跟踪误差再调节；不套用 G1 的 20 rad/s。
+第 15 节模型训练完成后才能运行；两套测试使用各自的独立日志目录。
+
+16.0 S1-side service (在 S1 的项目副本中执行)
+
+cd /home/jchen572/code_file/astribot_service
+conda activate teleimage
+export ASTRIBOT_SDK_ROOT=/home/jchen572/code_file/astribot_service/astribot_sdk_aarch64
+source /opt/ros/humble/setup.bash
+python -m astribot_image_service.server \
+    --sdk-root /home/jchen572/code_file/astribot_service/astribot_sdk_aarch64 \
+    --bind-host 0.0.0.0 \
+    --head-port 6100 \
+    --left-wrist-port 6101 \
+    --right-wrist-port 6102 \
+    --jpeg-quality 80 \
+    --enable-control \
+    --execute-control \
+    --control-bind-host 0.0.0.0 \
+    --control-port 6200 \
+    --control-mode g1 \
+    --control-way direct \
+    --control-frequency 250 \
+    --control-target-timeout-s 5 \
+    --tracking-arm-velocity 1.0 \
+    --tracking-torso-velocity 0.1 \
+    --tracking-head-velocity 0.3 \
+    --gripper-frequency 100 \
+    --gripper-velocity 40
+
+工作站准备（16.1/16.2 共用）：
+cd /home/jchen572/code_file/RBM_lerobot
+conda activate s1_lerobot
+export PYTHONPATH=/home/jchen572/code_file/RBM_lerobot/lerobot/src
+
+
+16.1 PI0.5 evaluation with G1-style S1 control
+
+CUDA_VISIBLE_DEVICES=0 python astribot_lerobot/eval_robot/eval_s1.py \
+    --policy.path=./lerobot/outputs/pi05_s1_red_cup_16d_normfix/checkpoints/025000/pretrained_model \
+    --policy.n_action_steps=50 \
+    --astribot_lock_non_policy_joints=true \
+    --astribot_g1_control=true \
+    --repo_id=local/cup_selection_s1_action \
+    --root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/lerobotv3_red_cup_only \
+    --task="123" \
+    --astribot_action_view=arms_grippers \
+    --episodes=0 \
+    --frequency=30 \
+    --arm=Astribot_S1 \
+    --ee='' \
+    --visualization=false \
+    --send_real_robot=true \
+    --image_transport=teleimager \
+    --image_server_address=192.168.0.11 \
+    --head_camera_zmq_port=6100 \
+    --left_wrist_camera_zmq_port=6101 \
+    --right_wrist_camera_zmq_port=6102 \
+    --head_camera_image_height=720 \
+    --head_camera_image_width=1280 \
+    --wrist_camera_image_height=360 \
+    --wrist_camera_image_width=640 \
+    --use_wrist_cameras=true \
+    --astribot_control_transport=remote \
+    --astribot_control_server_address=192.168.0.11 \
+    --astribot_control_port=6200 \
+    --astribot_control_timeout_s=5 \
+    --camera_features='["observation.images.head","observation.images.left","observation.images.right"]' \
+    --ready_lift_m=0 \
+    --ready_max_joint_delta=0.25 \
+    --max_policy_arm_delta=0.080 \
+    --max_policy_ee_delta=10.0 \
+    --arm_tracking_error_limit=0.35 \
+    --slow_move_tracking_wait_timeout_s=8 \
+    --policy_warmup_steps=5 \
+    --real_policy_warmup_steps=5 \
+    --policy_inference_timeout_s=10 \
+    --action_log_path=/home/jchen572/code_file/RBM_lerobot/eval_action_logs/pi05_s1_16d_normfix_g1_control
+
+
+16.2 DM0.5 evaluation with G1-style S1 control
+
+CUDA_VISIBLE_DEVICES=0 python astribot_lerobot/eval_robot/eval_s1.py \
+    --policy.path=./lerobot/outputs/dm05_s1_red_cup_16d_normfix/checkpoints/025000/pretrained_model \
+    --policy.n_action_steps=50 \
+    --astribot_lock_non_policy_joints=true \
+    --astribot_g1_control=true \
+    --repo_id=local/cup_selection_s1_action \
+    --root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/lerobotv3_red_cup_only \
+    --task="123" \
+    --astribot_action_view=arms_grippers \
+    --episodes=0 \
+    --frequency=30 \
+    --arm=Astribot_S1 \
+    --ee='' \
+    --visualization=false \
+    --send_real_robot=true \
+    --image_transport=teleimager \
+    --image_server_address=192.168.0.11 \
+    --head_camera_zmq_port=6100 \
+    --left_wrist_camera_zmq_port=6101 \
+    --right_wrist_camera_zmq_port=6102 \
+    --head_camera_image_height=720 \
+    --head_camera_image_width=1280 \
+    --wrist_camera_image_height=360 \
+    --wrist_camera_image_width=640 \
+    --use_wrist_cameras=true \
+    --astribot_control_transport=remote \
+    --astribot_control_server_address=192.168.0.11 \
+    --astribot_control_port=6200 \
+    --astribot_control_timeout_s=5 \
+    --camera_features='["observation.images.head","observation.images.left","observation.images.right"]' \
+    --ready_lift_m=0 \
+    --ready_max_joint_delta=0.25 \
+    --max_policy_arm_delta=0.080 \
+    --max_policy_ee_delta=10.0 \
+    --arm_tracking_error_limit=0.35 \
+    --slow_move_tracking_wait_timeout_s=8 \
+    --policy_warmup_steps=5 \
+    --real_policy_warmup_steps=5 \
+    --policy_inference_timeout_s=10 \
+    --action_log_path=/home/jchen572/code_file/RBM_lerobot/eval_action_logs/dm05_s1_16d_normfix_g1_control
+
+
+17. S1 low-speed diagnostic mode — 2026-10-22
+
+第 16 节 direct G1-style 发生初始化异常运动，实机入口已禁用。不要再运行旧命令。
+先按实体急停停止异常运动，再更新客户端和 S1 服务端。以下命令默认不执行实机。
+软件 disarm 仅停止继续下发，不等价于电机急停；SDK 或通讯故障时必须使用实体急停。
+安全调试模式使用单线程完整关节组 filter 指令，暂停周期校正，不自动回位/开夹爪。
+固定边界（新版）：指令转速 0.02 rad/s、加速度 0.05 rad/s²；反馈转速 0.1 rad/s、加速度 1 rad/s²；跟踪误差 0.05 rad；
+相对首次反馈姿态活动范围 0.15 rad；反馈循环间隔超过 0.2s 锁停；夹爪指令 1 单位/s、加速度 2 单位/s²。
+目标限速是指令约束，不保证物理限速。故障锁存不能用普通 action/hold_current 清除，需检查后重启服务。
+初始化目标超出 0.15 rad 会被拒绝，不要放宽限制去强行完成当前约 0.81 rad 的初始化。
+需先确认 SDK 实际关节映射、完整组 filter 语义和反馈可靠性；目前未通过实机安全验证。
+
+17.0 S1-side dry-run service（不包含 --execute-control）
+
+python -m astribot_image_service.server \
+    --sdk-root /home/jchen572/code_file/astribot_service/astribot_sdk_aarch64 \
+    --bind-host 0.0.0.0 \
+    --head-port 6100 \
+    --left-wrist-port 6101 \
+    --right-wrist-port 6102 \
+    --enable-control \
+    --control-port 6200 \
+    --control-mode safe \
+    --control-way filter \
+    --control-frequency 50 \
+    --control-target-timeout-s 2
+
+17.1 工作站离线策略检查（send_real_robot=false，不会向机器人发动作）
+
+CUDA_VISIBLE_DEVICES=0 python astribot_lerobot/eval_robot/eval_s1.py \
+    --policy.path=./lerobot/outputs/pi05_s1_red_cup_16d_normfix/checkpoints/025000/pretrained_model \
+    --policy.n_action_steps=50 \
+    --astribot_lock_non_policy_joints=true \
+    --astribot_safe_control=true \
+    --repo_id=local/cup_selection_s1_action \
+    --root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/lerobotv3_red_cup_only \
+    --task="123" \
+    --astribot_action_view=arms_grippers \
+    --episodes=0 \
+    --frequency=30 \
+    --arm=Astribot_S1 \
+    --ee='' \
+    --visualization=false \
+    --send_real_robot=false \
+    --image_transport=teleimager \
+    --image_server_address=192.168.0.11 \
+    --head_camera_zmq_port=6100 \
+    --left_wrist_camera_zmq_port=6101 \
+    --right_wrist_camera_zmq_port=6102 \
+    --head_camera_image_height=720 \
+    --head_camera_image_width=1280 \
+    --wrist_camera_image_height=360 \
+    --wrist_camera_image_width=640 \
+    --use_wrist_cameras=true \
+    --astribot_control_transport=remote \
+    --astribot_control_server_address=192.168.0.11 \
+    --astribot_control_port=6200 \
+    --astribot_control_timeout_s=5 \
+    --camera_features='["observation.images.head","observation.images.left","observation.images.right"]' \
+    --ready_lift_m=0 \
+    --ready_max_joint_delta=0.25 \
+    --max_policy_arm_delta=0.020 \
+    --max_policy_ee_delta=1.0 \
+    --arm_tracking_error_limit=0.35 \
+    --slow_move_tracking_wait_timeout_s=8 \
+    --policy_warmup_steps=5 \
+    --real_policy_warmup_steps=5 \
+    --policy_inference_timeout_s=10 \
+    --action_log_path=/home/jchen572/code_file/RBM_lerobot/eval_action_logs/pi05_s1_16d_normfix_safe_dryrun
+
+DM05 同样使用 safe 模式；将 policy.path 换成第 15 节 DM05 normfix checkpoint，并使用独立日志目录。
+
+18. PI0.5 真机低速保护模式（G1-style，手部合并控制）
+
+本节为安全版 G1-style：反馈跟踪、14D 双臂统一比例限速、SDK direct；夹爪不独立控制。
+双臂/躯干/头部/连续夹爪由同一线程、同一次 SDK 调用下发，不启动独立夹爪线程。
+客户端关闭额外平滑/远程插值；服务端保留低速/加速度保护，故不是第16节无保护 direct。
+必须同步最新 astribot_image_service 并重启服务；协议版本 2 加 g1_combined 执行方式握手防止连错服务。
+上次 Update the S1 service 报错表示运行中的服务未提供新版保护协议，不能删掉检查绕过。
+必须更新并重启服务端：客户端要求 safe_control_revision >=6（基础保护协议），旧服务在连接时被拒绝。
+策略目标相对当前反馈及上一条指令每步最多变化0.10 rad；总活动范围仍为启动姿态±1.0 rad。大幅目标被截断而非立即执行。
+速度上限与第16节对应，但仍有加速度/目标幅度保护，实际速度不保证达到上限。
+策略双臂启用上一SDK指令连续推进；实际反馈偏离仍按原跟踪误差保护。客户端落后超过0.075rad时保持上一目标，降到0.055rad内恢复取动作；持续2秒跟不上则停止，不跳动作。只检查双臂，不等待夹爪到位。
+关闭实验需去掉服务端 --safe-command-tracking，并将客户端 astribot_adaptive_tracking=false。目标频率仍默认10Hz，可单独改30Hz比较；实际频率受跟踪等待影响。
+先启动 18.0，再运行 18.1。r 请求对齐所选数据集起始帧，s 开始策略，q 退出且不回位。
+仍保留初始化/全程相对初始姿态 ±1.0 rad 边界；r 目标超界会拒绝，不能保证达到第一帧。
+可观察边界内的慢速运动方向；这不是完整抓取成功率测试，1.0 rad 范围用于容纳本次日志中约0.824 rad的首帧差值，仍需确认路径无障碍。
+r/b 首帧对齐使用约5秒的平滑轨迹（距离大或夹爪行程大时自动延长），逐步下发，不调用阻塞 SDK move。
+仅对齐阶段：关节指令角速度 <=0.35 rad/s、角加速度 <=0.5 rad/s²；实测速度/加速度保护至少为0.6 rad/s、3 rad/s²。
+到位后等待 s，恢复策略阶段双臂速度 <=1.0 rad/s、躯干 <=0.1 rad/s、头部 <=0.3 rad/s，关节指令加速度 <=1.0 rad/s²；
+策略阶段实测关节角速度 >1.5 rad/s、角加速度 >5.0 rad/s²、跟踪误差 >0.2 rad 即锁存故障。
+夹爪目标仍裁剪到0～100。策略阶段左右夹爪均保留原反馈步进裁剪量的50%：新SDK指令=目标+0.5×(原限速指令−目标)。例如目标40、原指令36，新指令38；不是固定输出38。r/b对齐保留原步进限制。
+取消旧夹爪0.12秒平滑和换向加速度限制；在0.5裁剪保留之后增加0.08秒时间常数的输出低通平滑，从上一条SDK指令推进，不重新缩放最终目标；r/b不启用。恒定目标约0.24秒完成95%的指令过渡，不保证机械到位时间。设 --safe-gripper-output-smoothing-s 0 关闭。身体控制及其保护参数不变。
+仍同线程合并下发50Hz，不启用独立夹爪线程。40单位/s、每周期0.8单位仅用于原始裁剪基准；保留系数0.5时不再是最终指令的硬速度上限。设 --safe-gripper-limit-retention 1 恢复原行为。
+必须同步服务端并使用下方 --safe-gripper-feedback-tracking 重启；旧服务不支持此参数。
+客户端先对新动作块前5步的夹爪目标做Add式过渡，参考上一条实际下发目标；首块不处理，仅夹爪生效。10Hz下约0.5秒，30Hz下约0.167秒。设 astribot_gripper_chunk_blend_steps=0 关闭。
+过渡后再做松开确认；持续松开目标仍会执行，不能替代抓持检测。
+客户端增加夹爪松开确认：左右独立，下降超过0.5单位且持续0.3秒才放行；确认后连续释放不重复等待。关闭方向直接放行，r/b后重置。
+该过滤不检测接触，不能保证抓持；正常释放也会延迟约0.3秒，块间持续错误松开仍会放行。设 astribot_gripper_release_confirm_s=0 可关闭。
+不会把中间目标自动变成全闭合目标。关节速度与角速度是同一指标；
+这里没有末端笛卡尔线速度保护。指令经过限速/限加速度生成，反馈超限则停发并报错退出。
+保留反馈超时与范围检查，范围按本节1.0 rad配置；退出不自动回位/开爪，故障需检查后重启。
+实测加速度使用至少100ms的非重叠窗口（首次需两个窗口），短促尖峰敏感度低于逐周期差分；逐周期转速保护保留。
+等待 r/s 时每0.25s刷新原目标并检查故障，不追随反馈漂移。
+SDK反馈差分可能因噪声/刷新率触发保护；不要直接放宽阈值。软件停发不等于硬件急停。
+实体急停必须可用；没有实机安全验证，不能保证取消SDK已接收的运动。
+
+18.0 S1端（更新并重启后运行，实际执行）
+cd /home/jchen572/code_file/astribot_service
+conda activate teleimage
+export ASTRIBOT_SDK_ROOT=/home/jchen572/code_file/astribot_service/astribot_sdk_aarch64
+source /opt/ros/humble/setup.bash
+
+python -m astribot_image_service.server \
+    --sdk-root /home/jchen572/code_file/astribot_service/astribot_sdk_aarch64 \
+    --bind-host 0.0.0.0 \
+    --sdk-freq 30 \
+    --head-port 6100 \
+    --left-wrist-port 6101 \
+    --right-wrist-port 6102 \
+    --enable-control \
+    --execute-control \
+    --control-bind-host 0.0.0.0 \
+    --control-port 6200 \
+    --control-mode safe \
+    --control-way direct \
+    --control-frequency 50 \
+    --safe-joint-envelope 1.0 \
+    --safe-measured-velocity 1.5 \
+    --safe-measured-acceleration 5.0 \
+    --safe-tracking-error 0.2 \
+    --tracking-arm-velocity 1.0 \
+    --tracking-torso-velocity 0.1 \
+    --tracking-head-velocity 0.3 \
+    --safe-policy-velocity 1.0 \
+    --safe-policy-acceleration 1.0 \
+    --safe-command-tracking \
+    --safe-direct-gripper \
+    --safe-gripper-feedback-tracking \
+    --safe-gripper-limit-retention 0.5 \
+    --safe-gripper-output-smoothing-s 0.08 \
+    --gripper-velocity 40 \
+    --control-target-timeout-s 2
+
+18.1 工作站 PI0.5（第16.1模型，安全 G1-style 合并夹爪）
+
+可选 RTC：将下方 astribot_rtc=false 改成 true。仅 PI0.5；同步跨块引导，参考剩余5步、引导权重1.0，50步队列每执行45步重规划。不是后台异步推理，不抵消推理耗时；跟踪等待期间不会消耗队列。原夹爪过滤和安全限制不变。日志 rtc 字段记录真实换块位置。
+
+CUDA_VISIBLE_DEVICES=0 python astribot_lerobot/eval_robot/eval_s1.py \
+    --policy.path=./lerobot/outputs/pi05_s1_red_cup_16d_normfix/checkpoints/025000/pretrained_model \
+    --policy.n_action_steps=50 \
+    --astribot_lock_non_policy_joints=true \
+    --astribot_safe_control=true \
+    --astribot_adaptive_tracking=true \
+    --astribot_rtc=true \
+    --astribot_direct_gripper_action=true \
+    --astribot_gripper_release_confirm_s=0.3 \
+    --astribot_gripper_chunk_blend_steps=2 \
+    --astribot_safe_joint_envelope=1.0 \
+    --astribot_safe_policy_velocity=1.0 \
+    --astribot_alignment_duration_s=5.0 \
+    --astribot_g1_control=true \
+    --repo_id=local/cup_selection_s1_action \
+    --root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/lerobotv3_red_cup_only \
+    --task="123" \
+    --astribot_action_view=arms_grippers \
+    --episodes=0 \
+    --frequency=15 \
+    --arm=Astribot_S1 \
+    --ee='' \
+    --visualization=false \
+    --send_real_robot=true \
+    --image_transport=teleimager \
+    --image_server_address=192.168.0.11 \
+    --head_camera_zmq_port=6100 \
+    --left_wrist_camera_zmq_port=6101 \
+    --right_wrist_camera_zmq_port=6102 \
+    --head_camera_image_height=720 \
+    --head_camera_image_width=1280 \
+    --wrist_camera_image_height=360 \
+    --wrist_camera_image_width=640 \
+    --use_wrist_cameras=true \
+    --astribot_control_transport=remote \
+    --astribot_control_server_address=192.168.0.11 \
+    --astribot_control_port=6200 \
+    --astribot_control_timeout_s=1 \
+    --camera_features='["observation.images.head","observation.images.left","observation.images.right"]' \
+    --ready_lift_m=0 \
+    --ready_max_joint_delta=0.25 \
+    --max_policy_arm_delta=0.100 \
+    --max_policy_ee_delta=0.0 \
+    --arm_tracking_error_limit=0.35 \
+    --slow_move_tracking_wait_timeout_s=8 \
+    --policy_warmup_steps=5 \
+    --real_policy_warmup_steps=5 \
+    --policy_inference_timeout_s=10 \
+    --action_log_path=/home/jchen572/code_file/RBM_lerobot/eval_action_logs/pi05_s1_16d_normfix_safe_g1_combined
+
+
+18.2 工作站 DM0.5（第16.2模型，安全 G1-style 合并夹爪）
+
+共用18.0服务端，控制配置沿用18.1：15Hz、50步、自适应跟踪、0.3秒松开确认。
+夹爪块间过渡与18.1一致为2步；RTC保持关闭（当前接入仅支持PI0.5）。
+使用独立DM0.5动作日志目录；运行环境需已安装DM0.5依赖。
+
+CUDA_VISIBLE_DEVICES=0 python astribot_lerobot/eval_robot/eval_s1.py \
+    --policy.path=./lerobot/outputs/dm05_s1_red_cup_16d_normfix/checkpoints/025000/pretrained_model \
+    --policy.n_action_steps=50 \
+    --astribot_lock_non_policy_joints=true \
+    --astribot_safe_control=true \
+    --astribot_adaptive_tracking=true \
+    --astribot_rtc=false \
+    --astribot_direct_gripper_action=true \
+    --astribot_gripper_release_confirm_s=0.3 \
+    --astribot_gripper_chunk_blend_steps=2 \
+    --astribot_safe_joint_envelope=1.0 \
+    --astribot_safe_policy_velocity=1.0 \
+    --astribot_alignment_duration_s=5.0 \
+    --astribot_g1_control=true \
+    --repo_id=local/cup_selection_s1_action \
+    --root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/lerobotv3_red_cup_only \
+    --task="123" \
+    --astribot_action_view=arms_grippers \
+    --episodes=0 \
+    --frequency=20 \
+    --arm=Astribot_S1 \
+    --ee='' \
+    --visualization=false \
+    --send_real_robot=true \
+    --image_transport=teleimager \
+    --image_server_address=192.168.0.11 \
+    --head_camera_zmq_port=6100 \
+    --left_wrist_camera_zmq_port=6101 \
+    --right_wrist_camera_zmq_port=6102 \
+    --head_camera_image_height=720 \
+    --head_camera_image_width=1280 \
+    --wrist_camera_image_height=360 \
+    --wrist_camera_image_width=640 \
+    --use_wrist_cameras=true \
+    --astribot_control_transport=remote \
+    --astribot_control_server_address=192.168.0.11 \
+    --astribot_control_port=6200 \
+    --astribot_control_timeout_s=1 \
+    --camera_features='["observation.images.head","observation.images.left","observation.images.right"]' \
+    --ready_lift_m=0 \
+    --ready_max_joint_delta=0.25 \
+    --max_policy_arm_delta=0.100 \
+    --max_policy_ee_delta=0.0 \
+    --arm_tracking_error_limit=0.35 \
+    --slow_move_tracking_wait_timeout_s=8 \
+    --policy_warmup_steps=5 \
+    --real_policy_warmup_steps=5 \
+    --policy_inference_timeout_s=10 \
+    --action_log_path=/home/jchen572/code_file/RBM_lerobot/eval_action_logs/dm05_s1_16d_normfix_safe_g1_combined

@@ -37,3 +37,5 @@ astribot_sdk_aarch64
 Add
 
 run_*.sh
+
+send_code_to_S1.py

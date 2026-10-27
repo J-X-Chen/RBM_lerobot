@@ -148,9 +148,9 @@ def _maybe_trim_action_for_postprocessor(
     return trimmed
 
 
-def _is_groot_relative_action_policy(policy: PreTrainedPolicy) -> bool:
+def _uses_relative_action_chunks(policy: PreTrainedPolicy) -> bool:
     config = getattr(policy, "config", None)
-    return str(getattr(config, "type", "")).lower() == "groot" and bool(
+    return str(getattr(config, "type", "")).lower() in {"groot", "dm05"} and bool(
         getattr(config, "use_relative_actions", False)
     )
 
@@ -158,6 +158,10 @@ def _is_groot_relative_action_policy(policy: PreTrainedPolicy) -> bool:
 def clear_cached_eval_actions(policy: PreTrainedPolicy | None) -> None:
     if policy is not None:
         setattr(policy, "_eval_decoded_action_queue", [])
+        rtc = getattr(policy, "_eval_rtc_guidance", None)
+        if rtc is not None:
+            policy._action_queue.clear()
+            rtc.reset()
 
 
 def extract_observation(step: dict):
@@ -188,12 +192,14 @@ def predict_action(
     capture_attention_map: bool = False,
 ):
     observation = copy(observation)
+    rtc = getattr(policy, "_eval_rtc_guidance", None)
     with (
-        torch.inference_mode(),
+        torch.inference_mode(rtc is None),
+        torch.no_grad(),
         torch.autocast(device_type=device.type) if device.type == "cuda" and use_amp else nullcontext(),
     ):
-        use_external_groot_queue = _is_groot_relative_action_policy(policy) and not use_dataset
-        if use_external_groot_queue:
+        use_external_relative_queue = _uses_relative_action_chunks(policy) and not use_dataset
+        if use_external_relative_queue:
             cached_actions = getattr(policy, "_eval_decoded_action_queue", [])
             if cached_actions:
                 action = cached_actions.pop(0)
@@ -222,11 +228,11 @@ def predict_action(
         setattr(policy, "_image_input_log_context", "dataset" if use_dataset else "real")
         previous_capture_attention_map = getattr(policy, "_eval_capture_attention_map", False)
         setattr(policy, "_eval_capture_attention_map", bool(capture_attention_map))
-        if _is_groot_relative_action_policy(policy):
+        if _uses_relative_action_chunks(policy):
             try:
                 action = policy.predict_action_chunk(observation)
                 action = postprocessor(action)
-                if use_external_groot_queue:
+                if use_external_relative_queue:
                     actions_per_chunk = int(
                         getattr(
                             policy,
@@ -242,7 +248,8 @@ def predict_action(
                 setattr(policy, "_eval_capture_attention_map", previous_capture_attention_map)
         else:
             try:
-                action = policy.select_action(observation)
+                action = (rtc.select_action(policy, observation, capture_attention_map)
+                          if rtc is not None else policy.select_action(observation))
                 action = _maybe_trim_action_for_postprocessor(action, postprocessor, robot_type)
                 action = postprocessor(action)
             finally:
@@ -267,6 +274,13 @@ def cleanup_resources(image_info: dict[str, Any]):
     image_client = image_info.get("image_client")
     if image_client is not None and hasattr(image_client, "stop"):
         image_client.stop()
+
+    receiver = image_info.get("image_receive_thread")
+    if receiver is not None:
+        receiver.join(timeout=5.0)
+        if receiver.is_alive():
+            logger_mp.error("Image receiver has not stopped; retaining shared memory to avoid use-after-close.")
+            return
 
     logger_mp.info("Cleaning up shared memory resources.")
     for shm in image_info["shm_resources"]:
@@ -299,15 +313,18 @@ def to_scalar(x):
 class EvalRealConfig:
     repo_id: str
     policy: PreTrainedConfig | None = None
+    astribot_rtc: bool = False  # PI05 synchronous RTC prefix guidance; no async worker.
 
     root: str = ""
     dataset_sample_ratio: float = 1.0
     dataset_sample_seed: int = 0
     task: str = ""
     feature_names: list[str] = field(default_factory=list)
-    camera_features: list[str] = field(default_factory=list)
+    camera_features: list[str] = field(default_factory=lambda: [
+        "observation.images.head", "observation.images.left", "observation.images.right"
+    ])
     episodes: int = 0
-    frequency: float = 30.0
+    frequency: float | None = None  # PI05: 15 Hz; DM05: 20 Hz; explicit values win.
     arm_velocity_limit: float = 0.25
     ready_arm_velocity_limit: float = 0.25
     arm_low_level_velocity_limit: float = 8.0
@@ -316,7 +333,7 @@ class EvalRealConfig:
     slow_move_tau_limit: float = 8.0
     slow_move_frequency: float = 50.0
     slow_move_tracking_pause_ratio: float = 0.98
-    slow_move_tracking_wait_timeout_s: float = 5.0
+    slow_move_tracking_wait_timeout_s: float = 8.0
     lower_block_wait_for_continue: bool = True
     lower_block_tracking_ratio: float = 0.75
     lower_block_wait_timeout_s: float = 1.0
@@ -327,16 +344,28 @@ class EvalRealConfig:
     auto_ready_pose: bool = True
     ready_arm_pose: str = ""
     ready_lift_m: float = 0.0
-    ready_max_joint_delta: float = 0.8
+    ready_max_joint_delta: float = 0.25
     lower_to_startup_on_quit: bool = True
     open_ee_on_quit: bool = True
-    max_policy_arm_delta: float = 0.080
-    max_policy_ee_delta: float = 10.0
+    max_policy_arm_delta: float = 0.100
+    max_policy_ee_delta: float = 0.0
     limit_policy_delta_from_last_command: bool = True
     # "auto" infers the view from checkpoint dimensions. "full" requires a
-    # 25D S1 checkpoint; "arms_grippers" requires a 16D checkpoint and locks
-    # chassis, torso, and head to the current robot pose during policy rollout.
-    astribot_action_view: str = ASTRIBOT_S1_ACTION_VIEW_AUTO
+    # 25D S1 checkpoint; "arms_grippers" requires a 16D checkpoint.
+    astribot_action_view: str = "arms_grippers"
+    # eval_s1.py: hold the initial non-policy pose; every 20s compensate
+    # feedback error slowly over a bounded 5s correction window.
+    astribot_lock_non_policy_joints: bool = True
+    # G1-style execution; with safe_control=True requires the safe combined service.
+    astribot_g1_control: bool = True
+    astribot_safe_control: bool = True
+    astribot_adaptive_tracking: bool = True
+    astribot_gripper_chunk_blend_steps: int = 2  # PI05/DM05 gripper-only chunk transition; 0 disables.
+    astribot_gripper_release_confirm_s: float = 0.3  # Opening debounce; 0 disables.
+    astribot_direct_gripper_action: bool = True
+    astribot_safe_joint_envelope: float = 1.0
+    astribot_safe_policy_velocity: float = 1.0
+    astribot_alignment_duration_s: float = 5.0
     astribot_policy_smooth_alpha: float = 0.0
     ee_tracking_tolerance: float = 5.0
     abort_on_ee_tracking_error: bool = False
@@ -350,25 +379,25 @@ class EvalRealConfig:
     save_camera_features_on_s: bool = True
     camera_feature_snapshot_dir: str = "tmp"
     image_transport: str = "teleimager"
-    image_server_address: str = "192.168.123.164"
+    image_server_address: str = "192.168.0.11"
     dds_network_interface: str = ""
     legacy_image_port: int = 5555
-    head_camera_image_height: int = 480
-    head_camera_image_width: int = 640
-    wrist_camera_image_height: int = 480
+    head_camera_image_height: int = 720
+    head_camera_image_width: int = 1280
+    wrist_camera_image_height: int = 360
     wrist_camera_image_width: int = 640
-    use_wrist_cameras: bool = False
+    use_wrist_cameras: bool = True
     head_only_camera_fallback: bool = False
-    head_camera_zmq_port: int = 55555
-    left_wrist_camera_zmq_port: int = 55556
-    right_wrist_camera_zmq_port: int = 55557
+    head_camera_zmq_port: int = 6100
+    left_wrist_camera_zmq_port: int = 6101
+    right_wrist_camera_zmq_port: int = 6102
     astribot_sdk_root: str = ""
     astribot_sdk_freq: float = 250.0
     astribot_high_control_rights: bool = False
-    astribot_control_transport: str = "local"
-    astribot_control_server_address: str = ""
+    astribot_control_transport: str = "remote"
+    astribot_control_server_address: str = "192.168.0.11"
     astribot_control_port: int = 6200
-    astribot_control_timeout_s: float = 5.0
+    astribot_control_timeout_s: float = 1.0
     astribot_control_reconnect: bool = True
     astribot_remote_interpolation_steps: int = 1
     astribot_control_way: str = "direct"
@@ -378,9 +407,9 @@ class EvalRealConfig:
     astribot_gripper_node_name: str = "eval_astribot_s1_gripper"
     init_ee_velocity_limit: float = 25.0
     shutdown_ee_open_velocity_limit: float = 50.0
-    policy_warmup_steps: int = 1
-    real_policy_warmup_steps: int = 1
-    policy_inference_timeout_s: float = 5.0
+    policy_warmup_steps: int = 5
+    real_policy_warmup_steps: int = 5
+    policy_inference_timeout_s: float = 10.0
     tokenizer_prefer_local_files: bool = True
     tokenizer_local_files_only: bool = False
     action_log_path: str = "eval_action_logs"
@@ -399,7 +428,7 @@ class EvalRealConfig:
     motion: bool = False
     headless: bool = False
     visualization: bool = False
-    send_real_robot: bool = False
+    send_real_robot: bool = True
     use_dataset: bool = False
 
     rename_map: dict[str, str] = field(default_factory=dict)
@@ -409,13 +438,21 @@ class EvalRealConfig:
         # HACK: We parse again the cli args here to get the pretrained path if there was one.
         policy_path = parser.get_path_arg("policy")
         if policy_path:
-            cli_overrides = parser.get_cli_overrides("policy")
+            cli_overrides = parser.get_cli_overrides("policy") or []
             self.policy = PreTrainedConfig.from_pretrained(policy_path, cli_overrides=cli_overrides)
+            if (self.policy.type in {"pi05", "dm05"}
+                    and not any(arg.split("=", 1)[0] == "--n_action_steps" for arg in cli_overrides)):
+                self.policy = PreTrainedConfig.from_pretrained(
+                    policy_path, cli_overrides=[*cli_overrides, "--n_action_steps=50"]
+                )
             self.policy.pretrained_path = policy_path
         else:
             logging.warning(
                 "No pretrained path was provided, evaluated policy will be built from scratch (random weights)."
             )
+
+        if self.frequency is None:
+            self.frequency = 20.0 if getattr(self.policy, "type", None) == "dm05" else 15.0
 
     @classmethod
     def __get_path_fields__(cls) -> list[str]:

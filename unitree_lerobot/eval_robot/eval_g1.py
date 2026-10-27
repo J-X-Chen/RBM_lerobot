@@ -27,9 +27,15 @@ from contextlib import nullcontext
 from types import SimpleNamespace
 from typing import Any, Callable
 
-_LEROBOT_SRC = Path(__file__).resolve().parents[1] / "lerobot" / "src"
-if _LEROBOT_SRC.exists() and str(_LEROBOT_SRC) not in sys.path:
-    sys.path.insert(0, str(_LEROBOT_SRC))
+# Both robot clients use the shared library, including policies absent from the old forks.
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_LEROBOT_SRC = _PROJECT_ROOT / "lerobot" / "src"
+for _import_root in (_PROJECT_ROOT, _LEROBOT_SRC):
+    if _import_root.exists():
+        if str(_import_root) in sys.path:
+            sys.path.remove(str(_import_root))
+        sys.path.insert(0, str(_import_root))
+
 
 from lerobot.policies.factory import make_policy, make_pre_post_processors
 from lerobot.utils.device_utils import get_safe_torch_device
@@ -5016,7 +5022,12 @@ def eval_main(cfg: EvalRealConfig):
     )
 
     logging.info("Making policy.")
-    policy = make_policy(cfg=cfg.policy, ds_meta=dataset.meta, rename_map=cfg.rename_map)
+    policy = make_policy(
+        cfg=cfg.policy,
+        ds_meta=dataset.meta,
+        rename_map=cfg.rename_map,
+        preserve_checkpoint_features=cfg.policy.type == "dm05",
+    )
     policy.eval()
 
     preprocessor_overrides = {

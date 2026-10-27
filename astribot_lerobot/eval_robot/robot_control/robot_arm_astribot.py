@@ -253,13 +253,20 @@ class AstribotS1RemoteArmController:
         arm_velocity_limit=None,
         reconnect: bool = True,
         remote_interpolation_steps: int = 1,
+        require_g1_control: bool = False,
+        require_safe_control: bool = False,
+        require_direct_gripper: bool = False,
     ):
         self.host = str(host)
         self.port = int(port)
         self.timeout_s = float(timeout_s)
         self.reconnect = bool(reconnect)
         self.arm_velocity_limit = float(arm_velocity_limit) if arm_velocity_limit is not None else 8.0
-        self.remote_interpolation_steps = max(1, int(remote_interpolation_steps))
+        self.require_direct_gripper = require_direct_gripper
+        self.require_safe_control = require_safe_control
+        self.required_mode = "safe" if require_safe_control else ("g1" if require_g1_control else None)
+        self.require_g1_control = require_g1_control
+        self.remote_interpolation_steps = 1 if (require_g1_control or require_safe_control) else max(1, int(remote_interpolation_steps))
         self.control_dt = 1.0 / 250.0
         self._lock = threading.Lock()
         self._sock: socket.socket | None = None
@@ -284,6 +291,11 @@ class AstribotS1RemoteArmController:
         self._sock = sock
 
     def _request(self, payload: dict[str, Any], *, timeout_s: float | None = None) -> dict[str, Any]:
+        if self.required_mode:
+            payload = {**payload, "required_control_mode": self.required_mode}
+        if self.require_safe_control:
+            payload = {**payload, "required_safe_execution_style":
+                       "g1_combined" if self.require_g1_control else "filter"}
         with self._lock:
             last_exc: Exception | None = None
             for attempt in range(2 if self.reconnect else 1):
@@ -302,6 +314,20 @@ class AstribotS1RemoteArmController:
                             f"{response.get('error', response)}"
                         )
                     control_status = response.get("control")
+                    self.last_control_status = control_status
+                    self.last_control_status_received_monotonic = time.monotonic()
+                    if self.require_safe_control:
+                        if self.require_g1_control and response.get("control", {}).get("safe_control_revision", 0) < 6:
+                            raise RuntimeError("Update and restart S1 service: safe G1 revision 6 required (gripper smoothing and reversal limits)")
+                        if response.get("control", {}).get("safe_direct_gripper", False) != self.require_direct_gripper:
+                            raise RuntimeError("Direct gripper mode mismatch: check S1 --safe-direct-gripper and client astribot_direct_gripper_action")
+                        expected_style = "g1_combined" if self.require_g1_control else "filter"
+                        if response.get("control", {}).get("safe_execution_style", "filter") != expected_style:
+                            raise RuntimeError("Safe execution style mismatch; update S1 service before motion")
+                        if response.get("control", {}).get("safe_protocol_version") != 2:
+                            raise RuntimeError("Safe control requires updated S1 service (protocol 2); no motion allowed")
+                        if response.get("control", {}).get("fault") and not payload.get("disarm"):
+                            raise RuntimeError(f"Safe control fault: {response['control']['fault']}")
                     if (
                         _is_mutating_remote_payload(payload)
                         and isinstance(control_status, dict)
@@ -313,6 +339,8 @@ class AstribotS1RemoteArmController:
                             "astribot_image_service.server with --execute-control before "
                             "pressing r/s for real robot motion."
                         )
+                    if self.required_mode and response.get("control", {}).get("control_mode") != self.required_mode:
+                        raise RuntimeError(f"S1 service must use --control-mode={self.required_mode}")
                     return response
                 except (OSError, ConnectionError, TimeoutError, RuntimeError) as exc:
                     last_exc = exc
@@ -397,10 +425,23 @@ class AstribotS1RemoteArmController:
         self.q_target = action_chunk[-1].copy()
         return response
 
+    def disarm(self):
+        return self._request({"disarm": True})
+
+    def set_safe_alignment(self, enabled: bool):
+        status = self._request({"get_state": True})["control"]
+        if not status.get("safe_alignment_supported"):
+            raise RuntimeError("Update S1 service: timed safe alignment is not supported")
+        response = self._request({"safe_alignment": enabled})
+        if response["control"].get("safe_alignment") is not enabled:
+            raise RuntimeError("S1 service did not acknowledge alignment mode")
+
     def clear_action_buffer(self):
         return self._request({"clear_buffer": True})
 
     def move_dual_arm_to_pose(self, q_target, duration: float, label: str = "target pose"):
+        if self.require_g1_control or self.require_safe_control:
+            raise RuntimeError("Tracked control must stream ctrl_dual_arm targets, not SDK move")
         q_target = _finite_vector("Astribot remote S1 whole-body move target", q_target, WHOLE_BODY_DOF).copy()
         q_target[LEFT_GRIPPER_SLICE] = np.clip(q_target[LEFT_GRIPPER_SLICE], 0.0, 100.0)
         q_target[RIGHT_GRIPPER_SLICE] = np.clip(q_target[RIGHT_GRIPPER_SLICE], 0.0, 100.0)

@@ -2,8 +2,8 @@
 """Copy one local folder to S1/Orin with same-name replacement.
 
 Examples:
-  python send_code_to_S1.py ./astribot_sdk_aarch64 192.168.0.11 /home/jchen572/code_file/astribot_service
-  python send_code_to_S1.py ./astribot_image_service 192.168.0.11 /home/jchen572/code_file/astribot_service
+  python send_code_to_S1.py ./astribot_sdk_aarch64 192.168.0.11 /home/jchen572/code_file/astribot_service/
+  python send_code_to_S1.py ./astribot_image_service 192.168.0.11 /home/jchen572/code_file/astribot_service/
 
 If the remote path already ends with the local folder name, it is treated as the
 final destination. Otherwise, it is treated as a parent directory, matching:

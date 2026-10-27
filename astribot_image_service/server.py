@@ -581,8 +581,88 @@ class AstribotControlBridge:
         add_default_torso: bool,
         gripper_binary: bool,
         gripper_threshold: float,
+        control_mode: str = "legacy",
+        tracking_arm_velocity: float = 1.0,
+        tracking_torso_velocity: float = 0.1,
+        tracking_head_velocity: float = 0.3,
+        gripper_frequency: float = 100.0,
+        gripper_velocity: float = 40.0,
+        safe_joint_envelope: float = 0.15,
+        safe_measured_velocity: float = 0.1,
+        safe_measured_acceleration: float = 1.0,
+        safe_tracking_error: float = 0.05,
+        safe_policy_velocity: float = 0.02,
+        safe_policy_acceleration: float = 0.05,
+        safe_command_tracking: bool = False,
+        safe_direct_gripper: bool = False,
+        safe_gripper_feedback_tracking: bool = False,
+        safe_gripper_limit_retention: float = 1.0,
+        safe_gripper_output_smoothing_s: float = 0.0,
+        safe_gripper_smoothing_s: float = 0.0,
+        safe_gripper_velocity: float = 1.0,
+        safe_gripper_acceleration: float = 2.0,
+        target_timeout_s: float = 5.0,
     ):
         self.astribot = astribot
+        if control_mode not in {"legacy", "g1", "safe"}:
+            raise ValueError("Unknown control mode")
+        rates = (tracking_arm_velocity, tracking_torso_velocity, tracking_head_velocity,
+                 gripper_frequency, gripper_velocity, command_frequency, target_timeout_s,
+                 safe_policy_velocity, safe_policy_acceleration, safe_gripper_velocity, safe_gripper_acceleration, safe_joint_envelope, safe_measured_velocity, safe_measured_acceleration, safe_tracking_error)
+        if not all(np.isfinite(v) and v > 0 for v in rates):
+            raise ValueError("Control frequencies and velocities must be finite and positive")
+        if control_mode == "g1" and (control_way != "direct" or use_wbc or add_default_torso or gripper_binary):
+            raise ValueError("g1 mode requires direct control, continuous grippers, no WBC/default torso")
+        if control_mode == "safe" and (control_way not in {"filter", "direct"} or use_wbc or add_default_torso or gripper_binary):
+            raise ValueError("safe mode requires filter/direct, continuous grippers, no WBC/default torso")
+        self.safe_g1_combined = control_mode == "safe" and control_way == "direct"
+        self._safe_alignment = False
+        self._safe_origin = None
+        self._safe_command = None
+        self._safe_feedback = None
+        self._safe_time = None
+        self._safe_velocity = np.zeros(25)
+        self._safe_window = None
+        self.control_mode = control_mode
+        self.tracking_arm_velocity = tracking_arm_velocity
+        self.tracking_torso_velocity = tracking_torso_velocity
+        self.tracking_head_velocity = tracking_head_velocity
+        self.gripper_frequency = gripper_frequency
+        self.gripper_velocity = gripper_velocity
+        self.safe_joint_envelope = safe_joint_envelope
+        self.safe_measured_velocity = safe_measured_velocity
+        self.safe_measured_acceleration = safe_measured_acceleration
+        self.safe_tracking_error = safe_tracking_error
+        self.safe_policy_velocity = safe_policy_velocity
+        self.safe_policy_acceleration = safe_policy_acceleration
+        if not np.isfinite(safe_gripper_smoothing_s) or safe_gripper_smoothing_s < 0:
+            raise ValueError("safe_gripper_smoothing_s must be finite and nonnegative")
+        self.safe_gripper_smoothing_s = float(safe_gripper_smoothing_s)
+        self.safe_direct_gripper = bool(safe_direct_gripper)
+        if safe_command_tracking and not self.safe_g1_combined:
+            raise ValueError("safe_command_tracking requires safe direct combined control")
+        self.safe_command_tracking = bool(safe_command_tracking)
+        if safe_gripper_feedback_tracking and not (self.safe_g1_combined and self.safe_direct_gripper):
+            raise ValueError("safe_gripper_feedback_tracking requires safe direct combined control")
+        self.safe_gripper_feedback_tracking = bool(safe_gripper_feedback_tracking)
+        if not np.isfinite(safe_gripper_limit_retention) or not 0 < safe_gripper_limit_retention <= 1:
+            raise ValueError("safe_gripper_limit_retention must be in (0, 1]")
+        if safe_gripper_limit_retention != 1 and not self.safe_gripper_feedback_tracking:
+            raise ValueError("Reduced gripper limit retention requires safe feedback gripper tracking")
+        self.safe_gripper_limit_retention = float(safe_gripper_limit_retention)
+        if not np.isfinite(safe_gripper_output_smoothing_s) or safe_gripper_output_smoothing_s < 0:
+            raise ValueError("safe_gripper_output_smoothing_s must be finite and nonnegative")
+        if safe_gripper_output_smoothing_s > 0 and not self.safe_gripper_feedback_tracking:
+            raise ValueError("Output smoothing requires safe feedback gripper tracking")
+        self.safe_gripper_output_smoothing_s = float(safe_gripper_output_smoothing_s)
+        self.safe_gripper_velocity = safe_gripper_velocity
+        self.safe_gripper_acceleration = safe_gripper_acceleration
+        self.target_timeout_s = target_timeout_s
+        self._last_target_monotonic = 0.0
+        self._stale_hold = False
+        self._fault: str | None = None
+        self._sdk_lock = threading.RLock()
+        self._gripper_thread = None
         self.execute = bool(execute)
         self.command_frequency = max(1.0, float(command_frequency))
         self.control_way = str(control_way)
@@ -597,8 +677,11 @@ class AstribotControlBridge:
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._command_thread: threading.Thread | None = None
+        self._tracking_diagnostic = None
         self._action_count = 0
         self._command_count = 0
+        self._body_command_count = 0
+        self._gripper_command_count = 0
         self._error_count = 0
         self._last_action_time = 0.0
         self._last_command_time = 0.0
@@ -617,6 +700,10 @@ class AstribotControlBridge:
             name="astribot-control-250hz",
         )
         self._command_thread.start()
+        if self.control_mode == "g1":
+            self._gripper_thread = threading.Thread(target=self._gripper_loop, daemon=True,
+                                                    name="astribot-independent-grippers")
+            self._gripper_thread.start()
         print(
             f"[astribot-control] {self.command_frequency:.1f}Hz SDK command loop started "
             f"(control_way={self.control_way}, use_wbc={self.use_wbc}, "
@@ -632,10 +719,14 @@ class AstribotControlBridge:
         if self._command_thread is not None:
             self._command_thread.join(timeout=1.0)
 
+        if self._gripper_thread is not None:
+            self._gripper_thread.join(timeout=1.0)
+
     def get_state(self) -> np.ndarray:
         if PROCESS_STOPPING.is_set():
             raise RuntimeError("Astribot control bridge is stopping.")
-        joints = self.astribot.get_current_joints_position(STATE_NAMES)
+        with self._sdk_lock:
+            joints = self.astribot.get_current_joints_position(STATE_NAMES)
         if joints is None:
             raise RuntimeError("Astribot SDK returned no joint state.")
         values: list[float] = []
@@ -652,9 +743,19 @@ class AstribotControlBridge:
         if self._stop_event.is_set() or PROCESS_STOPPING.is_set():
             raise RuntimeError("Astribot control bridge is stopping.")
         target = self._target_from_action(action)
+        if self.control_mode == "safe":
+            # Keep the stored trajectory target consistent with SDK gripper
+            # commands. Startup/hold targets may contain encoder zero offsets;
+            # clipping only _command_from_target leaves the tracker chasing them.
+            target = target.copy()
+            target[[14, 22]] = np.clip(target[[14, 22]], 0.0, 100.0)
         names, cmd_list = self._command_from_target(target)
         now = time.time()
         with self._lock:
+            if self.control_mode in {"g1", "safe"} and self._fault is not None:
+                raise RuntimeError(f"Control fault latched: {self._fault}; explicit hold_current or service restart required")
+            self._last_target_monotonic = time.monotonic()
+            self._stale_hold = False
             self._latest_names = names
             self._latest_cmd = cmd_list
             self._latest_action = target.copy()
@@ -663,6 +764,12 @@ class AstribotControlBridge:
         return names
 
     def move_to_pose(self, action: Any, *, duration: float) -> list[str]:
+        with self._sdk_lock:
+            return self._move_to_pose_locked(action, duration=duration)
+
+    def _move_to_pose_locked(self, action: Any, *, duration: float) -> list[str]:
+        if self.control_mode in {"g1", "safe"}:
+            raise RuntimeError("tracked modes prohibit blocking SDK move")
         if self._stop_event.is_set() or PROCESS_STOPPING.is_set():
             raise RuntimeError("Astribot control bridge is stopping.")
         target = self._target_from_action(action)
@@ -702,7 +809,9 @@ class AstribotControlBridge:
             "astribot_head": target[HEAD_SLICE],
         }
 
-        if self.gripper_binary:
+        if self.control_mode == "g1":
+            pass  # Dedicated gripper loop owns both continuous gripper targets.
+        elif self.gripper_binary:
             self._update_binary_grippers(target)
         else:
             command["astribot_gripper_left"] = np.clip(target[LEFT_GRIPPER_SLICE], 0.0, 100.0)
@@ -715,7 +824,13 @@ class AstribotControlBridge:
     def hold_current(self) -> list[str]:
         if self._stop_event.is_set() or PROCESS_STOPPING.is_set():
             raise RuntimeError("Astribot control bridge is stopping.")
-        return self.update_action(self.get_state())
+        with self._sdk_lock:
+            measured = self.get_state()
+            with self._lock:
+                if self.control_mode == "safe" and self._fault is not None:
+                    raise RuntimeError("Safe-mode fault is latched; inspect robot then restart service")
+                self._fault = None
+            return self.update_action(measured)
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
@@ -723,8 +838,40 @@ class AstribotControlBridge:
             last_command_time = self._last_command_time
             return {
                 "execute": self.execute,
+                "control_mode": self.control_mode,
+                "fault": self._fault,
+                "stale_hold": self._stale_hold,
+                "target_timeout_s": self.target_timeout_s,
+                "command_frequency": self.command_frequency,
+                "safe_protocol_version": 2 if self.control_mode == "safe" else None,
+                "safe_control_revision": 6,
+                "safe_command_tracking": self.safe_command_tracking,
+                "safe_alignment_supported": True,
+                "safe_alignment": self._safe_alignment,
+                "safe_execution_style": "g1_combined" if self.safe_g1_combined else "filter",
+                "tracking_arm_velocity": self.tracking_arm_velocity,
+                "gripper_frequency": self.gripper_frequency,
+                "safe_joint_envelope": self.safe_joint_envelope,
+                "safe_measured_velocity": self.safe_measured_velocity,
+                "safe_measured_acceleration": self.safe_measured_acceleration,
+                "safe_tracking_error": self.safe_tracking_error,
+                "safe_policy_velocity": self.safe_policy_velocity,
+                "safe_policy_acceleration": self.safe_policy_acceleration,
+                "safe_direct_gripper": self.safe_direct_gripper,
+                "safe_gripper_feedback_tracking": self.safe_gripper_feedback_tracking,
+                "safe_gripper_limit_retention": self.safe_gripper_limit_retention,
+                "safe_gripper_output_smoothing_s": self.safe_gripper_output_smoothing_s,
+                "safe_gripper_smoothing_s": self.safe_gripper_smoothing_s,
+                "safe_gripper_velocity": self.safe_gripper_velocity,
+                "safe_gripper_acceleration": self.safe_gripper_acceleration,
+
+                "tracking_diagnostic": self._tracking_diagnostic,
+                "tracking_diagnostic_age_s": (time.time() - self._tracking_diagnostic["server_time_s"]
+                                               if self._tracking_diagnostic is not None else None),
                 "actions": self._action_count,
                 "commands": self._command_count,
+                "body_commands": self._body_command_count,
+                "gripper_commands": self._gripper_command_count,
                 "errors": self._error_count,
                 "has_target": self._latest_cmd is not None,
                 "last_action_age_s": time.time() - last_action_time if last_action_time else None,
@@ -745,7 +892,376 @@ class AstribotControlBridge:
             flush=True,
         )
 
+    @staticmethod
+    def _velocity_target(target: np.ndarray, current: np.ndarray, velocity: float, dt: float) -> np.ndarray:
+        delta = target - current
+        scale = max(1.0, float(np.max(np.abs(delta))) / (velocity * dt))
+        return current + delta / scale
+
+    def _tracking_tick(self, *, grippers: bool) -> None:
+        # Serialize SDK access; recheck the target under this lock so move/stop
+        # cannot be followed by a stale target captured before the transition.
+        with self._sdk_lock:
+            with self._lock:
+                if self._latest_names is None or self._stop_event.is_set() or PROCESS_STOPPING.is_set():
+                    return
+                target = self._latest_action.copy()
+            measured = self.get_state()
+            with self._lock:
+                # Refresh the snapshot after the SDK read; a newer network target
+                # may have arrived while feedback was being fetched.
+                if self._latest_names is None or self._stop_event.is_set() or PROCESS_STOPPING.is_set():
+                    return
+                if time.monotonic() - self._last_target_monotonic > self.target_timeout_s and not self._stale_hold:
+                    self._latest_action = measured.copy()
+                    self._stale_hold = True
+                    print("[astribot-control] target timeout: holding measured pose", flush=True)
+                target = self._latest_action.copy()
+            if grippers:
+                names = ["astribot_gripper_left", "astribot_gripper_right"]
+                slices = [LEFT_GRIPPER_SLICE, RIGHT_GRIPPER_SLICE]
+                velocities = [self.gripper_velocity] * 2
+                dt = 1.0 / self.gripper_frequency
+            else:
+                names = ["astribot_torso", "astribot_arm_left", "astribot_arm_right", "astribot_head"]
+                slices = [TORSO_SLICE, LEFT_ARM_SLICE, RIGHT_ARM_SLICE, HEAD_SLICE]
+                velocities = [self.tracking_torso_velocity, self.tracking_arm_velocity,
+                              self.tracking_arm_velocity, self.tracking_head_velocity]
+                dt = 1.0 / self.command_frequency
+            # G1 scales the full 14D arm error by one factor, preserving the
+            # direction of the dual-arm error vector rather than clipping joints independently.
+            arm_indices = np.r_[7:14, 15:22]
+            arm_command = None if grippers else self._velocity_target(
+                target[arm_indices], measured[arm_indices], self.tracking_arm_velocity, dt)
+            commands = []
+            for sl, speed in zip(slices, velocities):
+                desired = np.clip(target[sl], 0, 100) if grippers else target[sl]
+                command = self._velocity_target(desired, measured[sl], speed, dt)
+                if grippers:
+                    command = np.clip(command, 0, 100)
+                elif sl == LEFT_ARM_SLICE:
+                    command = arm_command[:7]
+                elif sl == RIGHT_ARM_SLICE:
+                    command = arm_command[7:]
+                commands.append(command.tolist())
+            if self.execute:
+                if self._stop_event.is_set() or PROCESS_STOPPING.is_set():
+                    return
+                self.astribot.set_joints_position(names, commands, control_way="direct",
+                                                 use_wbc=False, add_default_torso=False)
+                with self._lock:
+                    self._command_count += 1
+                    if grippers:
+                        self._gripper_command_count += 1
+                    else:
+                        self._body_command_count += 1
+                    self._last_command_time = time.time()
+
+    def _tracking_loop(self, *, grippers: bool) -> None:
+        period = 1.0 / (self.gripper_frequency if grippers else self.command_frequency)
+        while not self._stop_event.is_set() and not PROCESS_STOPPING.is_set():
+            started = time.monotonic()
+            try:
+                self._tracking_tick(grippers=grippers)
+            except Exception as exc:
+                with self._lock:
+                    self._error_count += 1
+                    # Latch SDK/feedback failures; ordinary policy targets cannot
+                    # silently re-arm control. Explicit hold_current reads fresh state.
+                    self._fault = str(exc)
+                    self._latest_names = None
+                    self._latest_cmd = None
+                print(f"[astribot-control] tracking failed: {exc}", flush=True)
+            self._stop_event.wait(max(0.0, period - (time.monotonic() - started)))
+
+    def _gripper_loop(self) -> None:
+        self._tracking_loop(grippers=True)
+
+    def disarm(self) -> None:
+        with self._sdk_lock, self._lock:
+            self._safe_alignment = False
+            self._fault = "explicit stop; restart service after inspection"
+            self._latest_names = None
+            self._latest_cmd = None
+
+    def set_safe_alignment(self, enabled: bool) -> None:
+        with self._sdk_lock, self._lock:
+            if not self.safe_g1_combined or self._fault or self._stop_event.is_set():
+                raise RuntimeError("Alignment requires healthy safe G1 combined control")
+            joints = np.r_[3:14, 15:22, 23:25]
+            if not enabled and np.max(np.abs(self._safe_velocity[joints])) > self.safe_policy_velocity:
+                raise RuntimeError("Alignment has not decelerated to policy speed")
+            self._safe_alignment = enabled
+
+    def _safe_tick(self) -> None:
+        with self._sdk_lock:
+            with self._lock:
+                if self._fault or self._latest_names is None or self._stop_event.is_set() or PROCESS_STOPPING.is_set():
+                    return
+                target = self._latest_action.copy()
+                target_sequence = self._action_count
+            q = self.get_state().astype(np.float64)
+            if not np.all(np.isfinite(q)) or not np.all(np.isfinite(target)):
+                raise RuntimeError("non-finite safe control feedback or target")
+            now = time.monotonic()
+            joints = np.r_[3:14, 15:22, 23:25]
+            grips = [14, 22]
+            measured_speed_limit = max(self.safe_measured_velocity, 0.6) if self._safe_alignment else self.safe_measured_velocity
+            measured_acceleration_limit = max(self.safe_measured_acceleration, 3.0) if self._safe_alignment else self.safe_measured_acceleration
+            if self._safe_origin is None:
+                # Encoder zero can be slightly outside the command interval.
+                # Preserve measured feedback; sanitize only the initial command.
+                if np.any(q[grips] < -5.0) or np.any(q[grips] > 100.5):
+                    raise RuntimeError("initial gripper feedback outside tolerated range [-5.0, 100.5]")
+                self._safe_origin = q.copy()
+                self._safe_command = q.copy()
+                self._safe_command[grips] = np.clip(q[grips], 0, 100)
+                self._safe_feedback = q.copy()
+                self._safe_time = now
+            elapsed = now - self._safe_time
+            if elapsed > 0.2:
+                raise RuntimeError("safe control feedback cycle exceeded 0.2s")
+            measured_velocity = np.zeros(25)
+            if elapsed > 1e-6:
+                measured_velocity = (q - self._safe_feedback) / elapsed
+                if np.max(np.abs(measured_velocity[joints])) > measured_speed_limit:
+                    index = int(joints[np.argmax(np.abs(measured_velocity[joints]))])
+                    offset = 0
+                    for component, size in STATE_COMPONENTS:
+                        if index < offset + size:
+                            joint_name = f"{component}[{index - offset}]"
+                            break
+                        offset += size
+                    raise RuntimeError(
+                        f"measured joint speed exceeded {measured_speed_limit:g} rad/s: joint={index} ({joint_name}), "
+                        f"velocity={measured_velocity[index]:.6f}, "
+                        f"previous_q={self._safe_feedback[index]:.6f}, q={q[index]:.6f}, "
+                        f"dt_s={elapsed:.6f}, last_command={self._safe_command[index]:.6f}; "
+                        "grippers are excluded from this check"
+                    )
+            # SDK feedback can refresh more slowly than the command loop.
+            # Estimate acceleration between non-overlapping >=100ms velocity
+            # windows, using their midpoints rather than double-differencing
+            # sample-and-hold encoder values at every command tick.
+            if self._safe_window is None:
+                self._safe_window = (now, q.copy(), None, None)
+            window_start, window_q, previous_v, previous_mid = self._safe_window
+            window_dt = now - window_start
+            if window_dt >= 0.1:
+                window_v = (q - window_q) / window_dt
+                midpoint = (now + window_start) / 2
+                if previous_v is not None:
+                    acceleration = (window_v - previous_v) / (midpoint - previous_mid)
+                    index = int(joints[np.argmax(np.abs(acceleration[joints]))])
+                    if abs(acceleration[index]) > measured_acceleration_limit:
+                        raise RuntimeError(
+                            f"measured joint acceleration exceeded {measured_acceleration_limit:g} rad/s^2: joint={index}, "
+                            f"acceleration={acceleration[index]:.4f}, velocity={window_v[index]:.4f}, "
+                            f"previous_velocity={previous_v[index]:.4f}, window_s={window_dt:.4f}"
+                        )
+                self._safe_window = (now, q.copy(), window_v, midpoint)
+            if np.max(np.abs(q[joints] - self._safe_origin[joints])) > self.safe_joint_envelope:
+                index = int(joints[np.argmax(np.abs(q[joints] - self._safe_origin[joints]))])
+                raise RuntimeError(
+                    f"measured joint displacement exceeded {self.safe_joint_envelope:g} rad from initial pose: "
+                    f"joint={index}, initial={self._safe_origin[index]:.6f}, q={q[index]:.6f}, "
+                    f"last_command={self._safe_command[index]:.6f}, target={target[index]:.6f}"
+                )
+            if np.max(np.abs(target[joints] - self._safe_origin[joints])) > self.safe_joint_envelope:
+                raise RuntimeError(f"requested pose outside {self.safe_joint_envelope:g} rad safe envelope; do not auto-align")
+            if np.max(np.abs(self._safe_command[joints] - q[joints])) > self.safe_tracking_error:
+                raise RuntimeError(f"safe joint tracking error exceeded {self.safe_tracking_error:g} rad")
+            if time.monotonic() - self._last_target_monotonic > self.target_timeout_s:
+                raise RuntimeError("safe target timeout")
+            dt = min(max(elapsed, 0), 1.0 / self.command_frequency)
+            command = self._safe_command.copy()
+            # Slew from LAST COMMAND: feedback cannot jump the command.
+            # Limits cannot be relaxed via legacy speed flags.
+            # Acceleration-limited velocity, braking as remaining distance shrinks.
+            # Do not snap to target: snapping would violate acceleration at reversal.
+            velocity = self._safe_velocity.copy()
+            groups = ((joints, 0.02, 0.05), (grips, self.safe_gripper_velocity, self.safe_gripper_acceleration))
+            if self.safe_g1_combined:
+                # Same feedback groups as G1; both arms share one 14D scale.
+                # Grippers join the body SDK call, never a separate worker.
+                groups = ((np.r_[7:14, 15:22], 0.02, 0.05),
+                          (np.r_[3:7], 0.02, 0.05), (np.r_[23:25], 0.02, 0.05),
+                          (grips, self.safe_gripper_velocity, self.safe_gripper_acceleration))
+            gripper_baseline_command = None
+            gripper_unsmoothed_command = None
+            gripper_retention = 1.0 if self._safe_alignment else self.safe_gripper_limit_retention
+            for indices, vmax, amax in groups:
+                if self.safe_direct_gripper and np.array_equal(indices, grips):
+                    if self.safe_gripper_feedback_tracking:
+                        # Section 16's per-jaw feedback law, at the unchanged
+                        # combined command cadence (no independent jaw thread).
+                        gripper_baseline_command = []
+                        gripper_unsmoothed_command = []
+                        for index in grips:
+                            desired = np.clip(target[index:index + 1], 0, 100)
+                            limited = float(np.clip(self._velocity_target(
+                                desired, q[index:index + 1], self.gripper_velocity,
+                                1.0 / self.command_frequency)[0], 0, 100))
+                            gripper_baseline_command.append(limited)
+                            # Keep the configured fraction of the original removed
+                            # displacement. This relaxes the feedback step limit,
+                            # not the position bounds, and applies to both jaws.
+                            goal = float(desired[0]) + gripper_retention * (limited - float(desired[0]))
+                            gripper_unsmoothed_command.append(goal)
+                            if self.safe_gripper_output_smoothing_s > 0 and not self._safe_alignment:
+                                # Exact first-order low-pass update from last SDK
+                                # command: unity steady-state gain, no target rescale.
+                                alpha = -np.expm1(-max(elapsed, 0.0) / self.safe_gripper_output_smoothing_s)
+                                command[index] += alpha * (goal - command[index])
+                            else:
+                                command[index] = goal
+                        velocity[indices] = 0.0
+                    elif self.safe_gripper_smoothing_s > 0:
+                        # Smooth from the last command, never from measured jaw
+                        # position: encoder deadband cannot stall target progress.
+                        # Each jaw brakes independently when its target reverses.
+                        desired = np.clip((target[indices] - command[indices]) /
+                                          self.safe_gripper_smoothing_s, -vmax, vmax)
+                        velocity[indices] += np.clip(desired - velocity[indices],
+                                                     -amax * dt, amax * dt)
+                        command[indices] += velocity[indices] * dt
+                    else:
+                        command[indices] = np.clip(target[indices], 0, 100)
+                        velocity[indices] = 0.0
+                    continue
+                if not np.array_equal(indices, grips):
+                    vmax, amax = self.safe_policy_velocity, self.safe_policy_acceleration
+                    if self.safe_g1_combined:
+                        if np.array_equal(indices, np.r_[3:7]):
+                            vmax = min(vmax, self.tracking_torso_velocity)
+                        elif np.array_equal(indices, np.r_[23:25]):
+                            vmax = min(vmax, self.tracking_head_velocity)
+                        else:
+                            vmax = min(vmax, self.tracking_arm_velocity)
+                if self._safe_alignment and not np.array_equal(indices, grips):
+                    vmax, amax = 0.35, 0.5
+                error = target[indices] - command[indices]
+                desired = np.sign(error) * np.minimum(vmax, np.sqrt(2 * amax * np.abs(error)))
+                if self.safe_g1_combined:
+                    # Feedback target first, then a last-command acceleration
+                    # backstop: encoder disturbances cannot jump the SDK target.
+                    distance = float(np.max(np.abs(error)))
+                    speed = min(vmax, np.sqrt(2 * amax * distance))
+                    tracking_feedback = q[indices].copy()
+                    if np.array_equal(indices, grips):
+                        if np.any(tracking_feedback < -5.0) or np.any(tracking_feedback > 100.5):
+                            raise RuntimeError("gripper feedback outside tolerated range [-5.0, 100.5]")
+                        # Encoders may keep a small zero offset even while holding
+                        # the physical endpoint. Sanitize the tracking reference
+                        # every tick, preserving raw q for feedback diagnostics.
+                        tracking_feedback = np.clip(tracking_feedback, 0, 100)
+                    candidate = tracking_feedback.copy()
+                    if speed > 0 and dt > 0:
+                        candidate = self._velocity_target(target[indices], tracking_feedback, speed, dt)
+                    # Feedback may lag, drift or overshoot the fixed target.
+                    # It must not create a new reference beyond the interval
+                    # between the last command and the requested target. In
+                    # particular, an idle target collapses this interval to a
+                    # single value, so encoder drift cannot move the command.
+                    candidate = np.clip(candidate,
+                                        np.minimum(command[indices], target[indices]),
+                                        np.maximum(command[indices], target[indices]))
+                    if self._safe_alignment or np.array_equal(indices, grips):
+                        # r/b supply a smooth fixed-reference trajectory. A tiny
+                        # feedback-relative step can stall below SDK deadband.
+                        # Continuous grippers likewise follow the requested
+                        # target rather than stalling at feedback deadband.
+                        # Follow the trajectory with slew/acceleration backstops;
+                        # measured tracking error still faults before SDK output.
+                        candidate = target[indices]
+                    if self.safe_command_tracking and not self._safe_alignment and np.array_equal(indices, np.r_[7:14, 15:22]):
+                        # Advance from the last SDK command, preserving the full
+                        # dual-arm error direction. Braking and acceleration
+                        # limits remain active; feedback error still faults above.
+                        candidate = self._velocity_target(target[indices], command[indices],
+                                                          max(speed, 1e-12), dt) if dt > 0 else command[indices]
+                    desired = (candidate - command[indices]) / dt if dt > 0 else np.zeros_like(error)
+                    desired /= max(1.0, float(np.max(np.abs(desired))) / vmax)
+                    change = desired - velocity[indices]
+                    if dt > 0:
+                        change /= max(1.0, float(np.max(np.abs(change))) / (amax * dt))
+                        velocity[indices] += change
+                else:
+                    velocity[indices] += np.clip(desired - velocity[indices], -amax * dt, amax * dt)
+                command[indices] += velocity[indices] * dt
+            if np.max(np.abs(command[joints] - self._safe_origin[joints])) > self.safe_joint_envelope:
+                raise RuntimeError("acceleration-limited command would exceed safe envelope")
+            # Gripper endpoint saturation takes priority over acceleration
+            # smoothing. Do not fault the whole robot on bounded overshoot of
+            # an otherwise valid target during braking/reversal.
+            for index in grips:
+                if command[index] < 0 or command[index] > 100:
+                    command[index] = np.clip(command[index], 0, 100)
+                    velocity[index] = 0.0
+            names, commands = self._command_from_target(command)
+            sdk_started = time.monotonic()
+            sdk_sent = False
+            if self.execute and not self._stop_event.is_set() and not PROCESS_STOPPING.is_set():
+                self.astribot.set_joints_position(names, commands, control_way=self.control_way,
+                                                 use_wbc=False, add_default_torso=False)
+                sdk_sent = True
+            sdk_elapsed = time.monotonic() - sdk_started
+            arms = np.r_[7:14, 15:22]
+            diagnostic = {
+                "server_time_s": time.time(), "target_sequence": target_sequence,
+                "alignment": self._safe_alignment, "sdk_sent": sdk_sent,
+                "cycle_elapsed_s": elapsed, "limiter_dt_s": dt,
+                "sdk_call_elapsed_s": sdk_elapsed,
+                "target": target.tolist(), "sdk_command": command.tolist(),
+                "feedback_before_command": q.tolist(),
+                "command_velocity": ((command - self._safe_command) / elapsed).tolist() if elapsed > 1e-6 else None,
+                "measured_velocity": measured_velocity.tolist(),
+                "arm_target_command_gap_max": float(np.max(np.abs(target[arms] - command[arms]))),
+                "arm_command_feedback_gap_max": float(np.max(np.abs(command[arms] - q[arms]))),
+                "arm_target_feedback_gap_max": float(np.max(np.abs(target[arms] - q[arms]))),
+                "command_frequency": self.command_frequency,
+                "command_tracking": self.safe_command_tracking,
+                "policy_velocity_limit": self.safe_policy_velocity,
+                "policy_acceleration_limit": self.safe_policy_acceleration,
+                "tracking_arm_velocity_limit": self.tracking_arm_velocity,
+                "gripper_velocity_limit": (None if self.safe_gripper_feedback_tracking and gripper_retention < 1
+                                           else self.gripper_velocity if self.safe_gripper_feedback_tracking else self.safe_gripper_velocity),
+                "gripper_baseline_velocity": self.gripper_velocity,
+                "gripper_limit_retention": gripper_retention,
+                "gripper_baseline_sdk_command": gripper_baseline_command,
+                "gripper_unsmoothed_sdk_command": gripper_unsmoothed_command,
+                "gripper_output_smoothing_s": 0.0 if self._safe_alignment else self.safe_gripper_output_smoothing_s,
+            }
+            self._safe_velocity = velocity
+            self._safe_command = command
+            self._safe_feedback = q.copy()
+            self._safe_time = now
+            with self._lock:
+                self._tracking_diagnostic = diagnostic
+                self._command_count += int(self.execute)
+                if self.execute:
+                    self._last_command_time = time.time()
+
+    def _safe_loop(self) -> None:
+        while not self._stop_event.is_set() and not PROCESS_STOPPING.is_set():
+            started = time.monotonic()
+            try:
+                self._safe_tick()
+            except Exception as exc:
+                self.disarm()
+                with self._lock:
+                    self._fault = str(exc)
+                    self._error_count += 1
+                print(f"[astribot-control] SAFE FAULT: {exc}; no further SDK targets; use physical stop if moving", flush=True)
+            self._stop_event.wait(max(0, 1.0 / self.command_frequency - (time.monotonic() - started)))
+
     def _command_loop(self) -> None:
+        if self.control_mode == "safe":
+            self._safe_loop()
+            return
+        if self.control_mode == "g1":
+            self._tracking_loop(grippers=False)
+            return
         period = 1.0 / self.command_frequency
         next_time = time.monotonic()
         while not self._stop_event.is_set():
@@ -966,6 +1482,33 @@ class AstribotActionServerThread(threading.Thread):
     def _handle_request(self, request: dict[str, Any]) -> dict[str, Any]:
         if self._stop_event.is_set() or PROCESS_STOPPING.is_set():
             return self._status_response(ok=False, extra={"error": "server is stopping"})
+
+        required_mode = request.get("required_control_mode")
+        if required_mode is not None and required_mode != self.control.control_mode:
+            return self._status_response(ok=False, extra={"error": "control mode mismatch"})
+        if self.control.control_mode == "g1" and required_mode != "g1" and any(
+            key in request for key in ("action", "chunk", "move", "move_to_pose", "hold_current")
+        ):
+            return self._status_response(ok=False, extra={"error": "g1 mode requires a matching g1 client"})
+        if self.control.control_mode == "g1" and "chunk" in request:
+            return self._status_response(ok=False, extra={"error": "g1 mode accepts latest targets, not chunks"})
+
+        if request.get("disarm"):
+            self.player.clear()
+            self.control.disarm()
+            return self._status_response(extra={"disarmed": True})
+        if self.control.control_mode == "safe" and any(k in request for k in ("action", "chunk", "move", "move_to_pose", "hold_current", "safe_alignment")):
+            if required_mode != "safe" or "chunk" in request:
+                return self._status_response(ok=False, extra={"error": "safe mode requires matching single-target client"})
+            expected_style = "g1_combined" if self.control.safe_g1_combined else "filter"
+            if request.get("required_safe_execution_style", "filter") != expected_style:
+                return self._status_response(ok=False, extra={"error": "safe execution style mismatch; update client/service"})
+
+        if "safe_alignment" in request:
+            if type(request["safe_alignment"]) is not bool:
+                raise ValueError("safe_alignment must be boolean")
+            self.control.set_safe_alignment(request["safe_alignment"])
+            return self._status_response()
 
         if request.get("get_state"):
             return self._status_response(state=self.control.get_state())
@@ -1358,6 +1901,27 @@ def build_arg_parser() -> argparse.ArgumentParser:
         choices=["filter", "direct"],
         help="Astribot SDK control_way used by the high-frequency command loop.",
     )
+    parser.add_argument("--control-mode", choices=["legacy", "g1", "safe"], default="legacy")
+    parser.add_argument("--tracking-arm-velocity", type=float, default=1.0, help="rad/s")
+    parser.add_argument("--tracking-torso-velocity", type=float, default=0.1, help="rad/s")
+    parser.add_argument("--tracking-head-velocity", type=float, default=0.3, help="rad/s")
+    parser.add_argument("--control-target-timeout-s", type=float, default=5.0)
+    parser.add_argument("--gripper-frequency", type=float, default=100.0)
+    parser.add_argument("--safe-joint-envelope", type=float, default=0.15)
+    parser.add_argument("--safe-measured-velocity", type=float, default=0.1)
+    parser.add_argument("--safe-measured-acceleration", type=float, default=1.0)
+    parser.add_argument("--safe-tracking-error", type=float, default=0.05)
+    parser.add_argument("--safe-policy-velocity", type=float, default=0.02, help="Policy body command rad/s; alignment limits unchanged")
+    parser.add_argument("--safe-policy-acceleration", type=float, default=0.05, help="Policy body command rad/s^2")
+    parser.add_argument("--safe-gripper-smoothing-s", type=float, default=0.0, help="Optional gripper smoothing time constant for direct action mode; 0 disables")
+    parser.add_argument("--safe-gripper-output-smoothing-s", type=float, default=0.0, help="Policy-only post-retention gripper low-pass time constant; 0 disables")
+    parser.add_argument("--safe-gripper-limit-retention", type=float, default=1.0, help="Fraction of original gripper clipping retained: 1 unchanged, 0.5 halves removed displacement; policy only, both jaws")
+    parser.add_argument("--safe-gripper-feedback-tracking", action="store_true", help="Use G1 per-jaw feedback tracking at the combined command frequency")
+    parser.add_argument("--safe-command-tracking", action="store_true", help="Advance policy arms from last SDK command; retain acceleration and feedback fault checks")
+    parser.add_argument("--safe-direct-gripper", action="store_true", help="Pass continuous gripper targets directly in the combined SDK command; optionally smooth using --safe-gripper-smoothing-s")
+    parser.add_argument("--safe-gripper-velocity", type=float, default=1.0, help="Safe mode gripper position units/s; does not change body limits")
+    parser.add_argument("--safe-gripper-acceleration", type=float, default=2.0, help="Safe mode gripper position units/s^2")
+    parser.add_argument("--gripper-velocity", type=float, default=40.0, help="gripper position units/s")
     parser.add_argument("--control-use-wbc", action="store_true", help="Pass use_wbc=True to set_joints_position.")
     parser.add_argument(
         "--control-add-default-torso",
@@ -1394,6 +1958,8 @@ def main() -> None:
     faulthandler.enable()
     PROCESS_STOPPING.clear()
     args = build_arg_parser().parse_args()
+    if args.control_mode == "g1" and args.execute_control:
+        raise RuntimeError("G1 direct hardware execution disabled after unsafe motion report; use safe dry-run for diagnosis")
     use_full_sdk_client = bool(args.full_sdk_client or args.enable_control)
     ensure_astribot_sdk_runtime_env(args.sdk_root or None, check_native_log_dir=use_full_sdk_client)
     sdk_root = configure_astribot_sdk_path(args.sdk_root or None)
@@ -1521,6 +2087,26 @@ def main() -> None:
                 add_default_torso=bool(args.control_add_default_torso),
                 gripper_binary=bool(args.control_gripper_binary),
                 gripper_threshold=float(args.control_gripper_threshold),
+                control_mode=args.control_mode,
+                tracking_arm_velocity=args.tracking_arm_velocity,
+                tracking_torso_velocity=args.tracking_torso_velocity,
+                tracking_head_velocity=args.tracking_head_velocity,
+                gripper_frequency=args.gripper_frequency,
+                gripper_velocity=args.gripper_velocity,
+                safe_joint_envelope=args.safe_joint_envelope,
+                safe_measured_velocity=args.safe_measured_velocity,
+                safe_measured_acceleration=args.safe_measured_acceleration,
+                safe_tracking_error=args.safe_tracking_error,
+                safe_policy_velocity=args.safe_policy_velocity,
+                safe_policy_acceleration=args.safe_policy_acceleration,
+                safe_command_tracking=args.safe_command_tracking,
+                safe_direct_gripper=args.safe_direct_gripper,
+                safe_gripper_feedback_tracking=args.safe_gripper_feedback_tracking,
+                safe_gripper_limit_retention=args.safe_gripper_limit_retention,
+                safe_gripper_output_smoothing_s=args.safe_gripper_output_smoothing_s,
+                safe_gripper_smoothing_s=args.safe_gripper_smoothing_s,
+                safe_gripper_velocity=args.safe_gripper_velocity,
+                safe_gripper_acceleration=args.safe_gripper_acceleration,
             )
             control_bridge.start()
             action_player = BufferedActionPlayerThread(

@@ -144,9 +144,9 @@ def _maybe_trim_dex3_action_for_postprocessor(
     return trimmed
 
 
-def _is_groot_relative_action_policy(policy: PreTrainedPolicy) -> bool:
+def _uses_relative_action_chunks(policy: PreTrainedPolicy) -> bool:
     config = getattr(policy, "config", None)
-    return str(getattr(config, "type", "")).lower() == "groot" and bool(
+    return str(getattr(config, "type", "")).lower() in {"groot", "dm05"} and bool(
         getattr(config, "use_relative_actions", False)
     )
 
@@ -188,8 +188,8 @@ def predict_action(
         torch.inference_mode(),
         torch.autocast(device_type=device.type) if device.type == "cuda" and use_amp else nullcontext(),
     ):
-        use_external_groot_queue = _is_groot_relative_action_policy(policy) and not use_dataset
-        if use_external_groot_queue:
+        use_external_relative_queue = _uses_relative_action_chunks(policy) and not use_dataset
+        if use_external_relative_queue:
             cached_actions = getattr(policy, "_unitree_eval_decoded_action_queue", [])
             if cached_actions:
                 action = cached_actions.pop(0)
@@ -218,11 +218,11 @@ def predict_action(
         setattr(policy, "_image_input_log_context", "dataset" if use_dataset else "real")
         previous_capture_attention_map = getattr(policy, "_unitree_capture_attention_map", False)
         setattr(policy, "_unitree_capture_attention_map", bool(capture_attention_map))
-        if _is_groot_relative_action_policy(policy):
+        if _uses_relative_action_chunks(policy):
             try:
                 action = policy.predict_action_chunk(observation)
                 action = postprocessor(action)
-                if use_external_groot_queue:
+                if use_external_relative_queue:
                     actions_per_chunk = int(
                         getattr(
                             policy,

@@ -25,6 +25,15 @@ from pathlib import Path
 from torch import nn
 from contextlib import nullcontext
 from typing import Any
+# Both robot clients use the shared library, including policies absent from the old forks.
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_LEROBOT_SRC = _PROJECT_ROOT / "lerobot" / "src"
+for _import_root in (_PROJECT_ROOT, _LEROBOT_SRC):
+    if _import_root.exists():
+        if str(_import_root) in sys.path:
+            sys.path.remove(str(_import_root))
+        sys.path.insert(0, str(_import_root))
+
 from lerobot.policies.factory import make_policy, make_pre_post_processors
 from lerobot.utils.utils import (
     get_safe_torch_device,
@@ -1830,7 +1839,12 @@ def eval_main(cfg: EvalRealAsyncConfig):
     )
 
     logging.info("Making policy.")
-    policy = make_policy(cfg=cfg.policy, ds_meta=dataset.meta)
+    policy = make_policy(
+        cfg=cfg.policy,
+        ds_meta=dataset.meta,
+        rename_map=cfg.rename_map,
+        preserve_checkpoint_features=cfg.policy.type == "dm05",
+    )
     policy.eval()
 
     preprocessor, postprocessor = make_pre_post_processors(

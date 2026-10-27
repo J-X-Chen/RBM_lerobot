@@ -200,6 +200,7 @@ def setup_image_client(args: argparse.Namespace) -> dict[str, Any]:
         "has_thermal_cam": False,
         "shm_resources": [tv_img_shm, wrist_img_shm, thermal_img_shm],
         "image_client": img_client,
+        "image_receive_thread": image_receive_thread,
     }
 
 
@@ -237,6 +238,9 @@ def setup_robot_interface(args: argparse.Namespace) -> dict[str, Any]:
             arm_velocity_limit=getattr(args, "arm_low_level_velocity_limit", None),
             reconnect=bool(getattr(args, "astribot_control_reconnect", True)),
             remote_interpolation_steps=int(getattr(args, "astribot_remote_interpolation_steps", 1)),
+            require_g1_control=bool(getattr(args, "astribot_g1_control", False)),
+            require_safe_control=bool(getattr(args, "astribot_safe_control", False)),
+            require_direct_gripper=bool(getattr(args, "astribot_direct_gripper_action", False)),
         )
     elif astribot_control_transport in {"local", "sdk", ""}:
         arm_ctrl = arm_spec["controller"](
