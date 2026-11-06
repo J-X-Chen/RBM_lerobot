@@ -79,6 +79,7 @@ from lerobot.datasets import (
     StreamingLeRobotDataset,
     compute_sampler_state,
 )
+from lerobot.datasets.cobot_magic import is_cobot_magic, prepare_cobot_magic_dataset
 from lerobot.datasets.factory import make_train_eval_datasets
 from lerobot.datasets.multi_dataset import MultiLeRobotDataset
 from lerobot.datasets.video_utils import clear_video_decoder_cache
@@ -647,11 +648,24 @@ def _should_use_astribot_arm_gripper_view(dataset, action_view: str, *, log_skip
 def apply_robot_dataset_views(
     cfg: TrainPipelineConfig, dataset: Any, eval_dataset: Any | None = None, *, log_skip: bool = True
 ) -> tuple[Any, Any | None]:
-    """Apply S1/G1 action contracts before policy construction and normalization.
+    """Apply robot action contracts before policy construction and normalization.
 
     Shared by every policy, including DM05; both training and held-out data must
     expose the same feature dimensions and transformed statistics.
     """
+    if is_cobot_magic(dataset):
+        if cfg.dataset.streaming:
+            raise NotImplementedError("Cobot Magic exact training statistics require dataset.streaming=false.")
+        if (
+            cfg.dataset.compress_dex3_actions not in (False, "auto")
+            or cfg.dataset.astribot_action_view == ASTRIBOT_S1_ACTION_VIEW_ARM_GRIPPER
+        ):
+            raise ValueError("Cobot Magic uses native 14D actions; disable S1/G1 action compression.")
+        if getattr(cfg.policy, "use_relative_actions", False):
+            raise ValueError("Cobot Magic training currently requires policy.use_relative_actions=false.")
+        prepare_cobot_magic_dataset(dataset, eval_dataset)
+        return dataset, eval_dataset
+
     if _should_compress_dex3_actions(dataset, cfg.dataset.compress_dex3_actions, log_skip=log_skip):
         if cfg.dataset.streaming:
             raise NotImplementedError("Dex3 action compression is not supported for streaming datasets.")

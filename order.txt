@@ -873,10 +873,13 @@ python -m astribot_image_service.server \
 
 可选 RTC：将下方 astribot_rtc=false 改成 true。仅 PI0.5；同步跨块引导，参考剩余5步、引导权重1.0，50步队列每执行45步重规划。不是后台异步推理，不抵消推理耗时；跟踪等待期间不会消耗队列。原夹爪过滤和安全限制不变。日志 rtc 字段记录真实换块位置。
 
+准备对齐：astribot_prepare_arms_only=true 时，r/b 仅双臂和夹爪16维对齐起始帧 observation.state；底座、躯干和头部保持按键时姿势。false 恢复原全上身对齐。
+
 CUDA_VISIBLE_DEVICES=0 python astribot_lerobot/eval_robot/eval_s1.py \
     --policy.path=./lerobot/outputs/pi05_s1_red_cup_16d_normfix/checkpoints/025000/pretrained_model \
     --policy.n_action_steps=50 \
     --astribot_lock_non_policy_joints=true \
+    --astribot_prepare_arms_only=false \
     --astribot_safe_control=true \
     --astribot_adaptive_tracking=true \
     --astribot_rtc=true \
@@ -934,6 +937,7 @@ CUDA_VISIBLE_DEVICES=0 python astribot_lerobot/eval_robot/eval_s1.py \
     --policy.path=./lerobot/outputs/dm05_s1_red_cup_16d_normfix/checkpoints/025000/pretrained_model \
     --policy.n_action_steps=50 \
     --astribot_lock_non_policy_joints=true \
+    --astribot_prepare_arms_only=false \
     --astribot_safe_control=true \
     --astribot_adaptive_tracking=true \
     --astribot_rtc=false \
@@ -979,3 +983,337 @@ CUDA_VISIBLE_DEVICES=0 python astribot_lerobot/eval_robot/eval_s1.py \
     --real_policy_warmup_steps=5 \
     --policy_inference_timeout_s=10 \
     --action_log_path=/home/jchen572/code_file/RBM_lerobot/eval_action_logs/dm05_s1_16d_normfix_safe_g1_combined
+
+
+19. ALOHA PI0.5 训练（aloha_cup_selection_red，14D 双臂夹爪，三相机）
+
+在工作站的训练环境运行，使用共享 ./lerobot；不需要连接机器人或启动 ROS 服务。
+数据为105个episode、43935帧、30FPS；state/action均为14维，顺序为左臂6关节+左夹爪+右臂6关节+右夹爪。
+相机为head/left/right，任务文本直接读取数据集。保留原始绝对动作和单位，不使用S1或G1动作压缩。
+训练器会识别cobot_magic并从实际训练帧重算精确数值统计，避免原q01/q99错误；不改写原始数据。
+PI0.5使用batch_size=16，训练25000步，第25000步保存；默认全参数微调。
+日志频率、数据加载进程数和环境评估频率与G1一样使用训练器默认值；输出目录必须是新目录。
+基础权重使用lerobot/pi05_base；离线时将policy.pretrained_path改为完整本地checkpoint目录。
+PI0.5还需要PaliGemma tokenizer；本地tokenizer可通过 --policy.text_tokenizer_name=/absolute/path/to/tokenizer 指定。
+
+cd /home/jchen572/code_file/RBM_lerobot
+conda activate s1_lerobot
+export PYTHONPATH="$PWD/lerobot/src${PYTHONPATH:+:$PYTHONPATH}"
+
+CUDA_VISIBLE_DEVICES=0 python -m lerobot.scripts.lerobot_train \
+    --dataset.repo_id=local/aloha_cup_selection_red \
+    --dataset.root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/aloha_cup_selection_red \
+    --dataset.feature_names='["action","observation.state","observation.images.head","observation.images.left","observation.images.right"]' \
+    --dataset.compress_dex3_actions=false \
+    --policy.type=pi05 \
+    --policy.compile_model=false \
+    --policy.pretrained_path=lerobot/pi05_base \
+    --policy.gradient_checkpointing=true \
+    --policy.dtype=bfloat16 \
+    --policy.device=cuda \
+    --policy.push_to_hub=false \
+    --output_dir=/home/jchen572/code_file/RBM_lerobot/lerobot/outputs/pi05_aloha_red_cup_14d \
+    --job_name=pi05_aloha_red_cup_14d \
+    --batch_size=16 \
+    --steps=25000 \
+    --save_freq=25000
+
+训练后完整checkpoint：./lerobot/outputs/pi05_aloha_red_cup_14d/checkpoints/last/pretrained_model
+
+
+20. ALOHA DM0.5 训练（aloha_cup_selection_red，14D 双臂夹爪，三相机）
+
+数据、动作顺序和精确统计处理与第19节一致，使用./lerobot现有DM05算法。
+DM05固定head/left/right相机顺序并启用状态输入；VLM/AE分别开启梯度检查点。
+基础权重使用已转换的lerobot/dm05_base，不能将原始Dexmal/DM05直接当作policy.path。
+离线时将policy.path改为包含config、权重、前后处理器和dm05_processor/的完整本地checkpoint目录。
+DM0.5使用默认batch_size=8，训练25000步，第25000步保存，chunk_size=50，n_action_steps=4。
+全参数微调，使用GPU 0；日志频率、数据加载进程数和环境评估频率使用训练器默认值。
+policy.path会读取checkpoint配置，因此保留覆盖checkpoint所需的策略参数；不能仅凭类默认值省略。
+
+cd /home/jchen572/code_file/RBM_lerobot
+conda activate s1_lerobot
+export PYTHONPATH="$PWD/lerobot/src${PYTHONPATH:+:$PYTHONPATH}"
+
+CUDA_VISIBLE_DEVICES=1 python -m lerobot.scripts.lerobot_train \
+    --dataset.repo_id=local/aloha_cup_selection_red \
+    --dataset.root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/aloha_cup_selection_red \
+    --dataset.feature_names='["action","observation.state","observation.images.head","observation.images.left","observation.images.right"]' \
+    --dataset.video_backend=pyav \
+    --dataset.compress_dex3_actions=false \
+    --policy.path=lerobot/dm05_base \
+    --policy.image_keys='["observation.images.head","observation.images.left","observation.images.right"]' \
+    --policy.add_state=true \
+    --policy.use_relative_actions=false \
+    --policy.norm_clip=true \
+    --policy.chunk_size=50 \
+    --policy.n_action_steps=4 \
+    --policy.vlm_gradient_checkpointing=true \
+    --policy.ae_gradient_checkpointing=true \
+    --policy.freeze_vlm_embedding=false \
+    --policy.compile_model=false \
+    --policy.dtype=bfloat16 \
+    --batch_size=8 \
+    --policy.device=cuda \
+    --policy.push_to_hub=false \
+    --output_dir=/home/jchen572/code_file/RBM_lerobot/lerobot/outputs/dm05_aloha_red_cup_14d \
+    --job_name=dm05_aloha_red_cup_14d \
+    --steps=25000 \
+    --save_freq=25000
+
+训练后完整checkpoint：./lerobot/outputs/dm05_aloha_red_cup_14d/checkpoints/last/pretrained_model
+
+
+21. ALOHA 共用发送端与实时只读预览（PI0.5 / DM0.5）
+
+21.0 机器人端（第21/22节共用，更新本地 agilex_image_service 后自行替换远端）
+
+发送端：jchen572@192.168.0.102。start_all.sh 自动激活 aloha 并启动ROS相机与SDK服务。
+首次部署/更换目录按README执行deploy.sh；hardware.json已随服务提供，无需从示例复制。
+关节限位/夹爪行程设为auto，启动时只读查询控制器，结果另存hardware.resolved.json；无应答不会使用默认零值。
+CAN要求为can_left/can_right、1Mbit/s；start_all.sh自动恢复缺失的接口名、设置波特率并启用网卡，需要时提示sudo密码。
+已核对USB映射：1-13:1.0 → can_left，1-12:1.0 → can_right；不要按can数字猜测左右臂。
+夹爪scale=1、offset=0沿用采集SDK单位转换。
+实际执行臂需有独立CAN反馈，不要求恢复遥操作主从航空插头连接。
+
+21.0 可选：仅在报告 EMERGENCY_STOP 时手动恢复（不是每次启动的必做步骤）
+先停止评估程序和发送端服务，取下负载并可靠支撑机械臂，确认物理急停已释放。
+注意：此SDK恢复指令与ResetPiper相同，可能立即失电下落；不是缓慢回位！输入RESET才执行。
+CAN接口需已启用。每次只恢复指定的一只臂，状态正常时不发送重置指令。
+
+cd /home/jchen572/code_file/agilex_image_service
+conda activate aloha
+python reset_piper.py --can=can_left
+# 仅右臂也处于急停时执行：
+# python reset_piper.py --can=can_right
+
+21.0 正常启动发送端（恢复完成后仍需重新启动服务）
+
+cd /home/jchen572/code_file/agilex_image_service
+conda activate aloha
+bash start_all.sh \
+    --hardware-config=./hardware.json \
+    --bind-host=0.0.0.0 \
+    --head-port=6100 \
+    --left-wrist-port=6101 \
+    --right-wrist-port=6102 \
+    --control-port=6200 \
+    --execute-control \
+    --smooth-control \
+    --control-frequency=30 \
+    --joint-acceleration=0.9 \
+    --gripper-acceleration=0.08 \
+    --joint-speed=0.45 \
+    --gripper-speed=0.04 \
+    --tracking-limit=0.35 \
+    --timeout=5 \
+    --feedback-timeout=1 \
+    --camera-timeout=2
+
+这里统一允许执行，但启动不会自动使能；第21.1/21.2节只读，第22.1/22.2节按r对齐或按s开始时才使能。
+两组共用此服务，不需要再切换只读/执行服务；若要服务端完全禁用运动，删除 --execute-control。
+端口仿照第18节使用6100/6101/6102和6200；若修改，发送端与客户端一起修改。
+joint-speed单位rad/s，gripper-speed单位物理米/s；tracking-limit为关节跟踪偏差rad。
+timeout为使能后的无动作超时；预热和等待输入不计入。其余两个timeout分别为反馈/相机过期阈值（秒）。
+SDK速度比例仍为20%；不套用S1躯干、头部、夹爪0～100单位或S1专用控制开关。
+
+21.0 附：工作站查看三路相机画面（另开终端，保持发送端运行）
+
+cd /home/jchen572/code_file/RBM_lerobot
+conda activate s1_lerobot
+
+python -m agilex_image_service.client \
+    --host 192.168.0.102 \
+    --head-port 6100 \
+    --left-wrist-port 6101 \
+    --right-wrist-port 6102
+
+此命令只查看相机画面，不使能或控制机械臂；在有图形桌面的终端运行。
+
+21.1 工作站 PI0.5 实时只读预览
+
+cd /home/jchen572/code_file/RBM_lerobot
+conda activate s1_lerobot
+
+CUDA_VISIBLE_DEVICES=0 python agilex-lerobot/eval_robot/eval_aloha.py \
+    --policy.path=./lerobot/outputs/pi05_aloha_red_cup_14d/checkpoints/last/pretrained_model \
+    --n-action-steps=50 \
+    --dataset-root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/aloha_cup_selection_red \
+    --task="Select the red cup and place it on the black coaster." \
+    --mode=live \
+    --active-arm=both \
+    --frequency=30 \
+    --image-server-address=192.168.0.102 \
+    --head-camera-port=6100 \
+    --left-camera-port=6101 \
+    --right-camera-port=6102 \
+    --robot-host=192.168.0.102 \
+    --robot-port=6200 \
+    --joint-speed=0.3 \
+    --gripper-speed=0.02 \
+    --camera-timeout=2 \
+    --command-timeout=5 \
+    --policy-warmup-steps=5 \
+    --log=./eval_action_logs/aloha_pi05_live_preview.jsonl
+
+21.2 工作站 DM0.5 实时只读预览（相同推理环境）
+
+CUDA_VISIBLE_DEVICES=1 python agilex-lerobot/eval_robot/eval_aloha.py \
+    --policy.path=./lerobot/outputs/dm05_aloha_red_cup_14d/checkpoints/last/pretrained_model \
+    --n-action-steps=50 \
+    --dataset-root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/aloha_cup_selection_red \
+    --task="Select the red cup and place it on the black coaster." \
+    --mode=live \
+    --active-arm=both \
+    --frequency=30 \
+    --image-server-address=192.168.0.102 \
+    --head-camera-port=6100 \
+    --left-camera-port=6101 \
+    --right-camera-port=6102 \
+    --robot-host=192.168.0.102 \
+    --robot-port=6200 \
+    --joint-speed=0.3 \
+    --gripper-speed=0.02 \
+    --camera-timeout=2 \
+    --command-timeout=5 \
+    --policy-warmup-steps=5 \
+    --log=./eval_action_logs/aloha_dm05_live_preview.jsonl
+
+以上只读命令不下发动作；log中的command只是预览目标。
+task可直接改任务文本；删除 --task 时从dataset-root/meta/tasks.parquet读取唯一任务。
+n-action-steps对应第18节policy.n_action_steps，控制每次预测后执行多少步；这里保留PI05=50、DM05=4。
+frequency是同步控制目标Hz，不保证包含推理耗时后的实际Hz。需要15/20Hz时直接改该参数。
+active-arm可选both/left/right；实机单臂模式另一侧保持启动姿态。只用一张GPU时把1改为0。
+图像直接使用发送端分辨率并由模型处理器缩放；不使用S1的身体锁定或RTC。
+第21.1/21.2节始终只读：r/s不会使能或运动，q或Ctrl+C直接退出预览。
+
+
+22. ALOHA 实机执行（共用21.0发送端，不重复启动服务）
+
+22.1 工作站 PI0.5 实机执行
+
+conda activate s1_lerobot
+CUDA_VISIBLE_DEVICES=0 python agilex-lerobot/eval_robot/eval_aloha.py \
+    --policy.path=./lerobot/outputs/pi05_aloha_red_cup_14d/checkpoints/last/pretrained_model \
+    --n-action-steps=50 \
+    --async-prefetch \
+    --adaptive-tracking \
+    --prefetch-steps=5 \
+    --async-timeout=2 \
+    --dataset-root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/aloha_cup_selection_red \
+    --task="Select the red cup and place it on the black coaster." \
+    --mode=live \
+    --active-arm=both \
+    --frequency=15 \
+    --image-server-address=192.168.0.102 \
+    --head-camera-port=6100 \
+    --left-camera-port=6101 \
+    --right-camera-port=6102 \
+    --robot-host=192.168.0.102 \
+    --robot-port=6200 \
+    --joint-speed=0.45 \
+    --gripper-speed=0.04 \
+    --camera-timeout=2 \
+    --command-timeout=5 \
+    --policy-warmup-steps=5 \
+    --episode=0 \
+    --return-joint-speed=0.15 \
+    --return-gripper-speed=0.01 \
+    --return-timeout=60 \
+    --execute \
+    --log=./eval_action_logs/aloha_pi05_live_execute_rollback.jsonl
+
+22.2 工作站 DM0.5 实机执行（不要与PI0.5同时运行）
+
+CUDA_VISIBLE_DEVICES=1 python agilex-lerobot/eval_robot/eval_aloha.py \
+    --policy.path=./lerobot/outputs/dm05_aloha_red_cup_14d/checkpoints/last/pretrained_model \
+    --n-action-steps=50 \
+    --async-prefetch \
+    --adaptive-tracking \
+    --prefetch-steps=10 \
+    --async-timeout=2 \
+    --dataset-root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/aloha_cup_selection_red \
+    --task="Select the red cup and place it on the black coaster." \
+    --mode=live \
+    --active-arm=both \
+    --frequency=15 \
+    --image-server-address=192.168.0.102 \
+    --head-camera-port=6100 \
+    --left-camera-port=6101 \
+    --right-camera-port=6102 \
+    --robot-host=192.168.0.102 \
+    --robot-port=6200 \
+    --joint-speed=0.45 \
+    --gripper-speed=0.04 \
+    --camera-timeout=2 \
+    --command-timeout=5 \
+    --policy-warmup-steps=5 \
+    --episode=0 \
+    --return-joint-speed=0.15 \
+    --return-gripper-speed=0.01 \
+    --return-timeout=60 \
+    --execute \
+    --log=./eval_action_logs/aloha_dm05_live_execute_rollback.jsonl
+
+与只读命令相比增加 --execute；按键无需回车（在工作站交互终端运行）。
+r：限速对齐 --episode 所选示范首帧 observation.state（包含夹爪），到位后等待s；运行中r会暂停策略并重新对齐。
+s：开始策略；也可以不按r，直接从现场摆好的姿态开始。
+初始姿态记录为第一次使能前的真实反馈，r对齐后不会覆盖它；不是关节全零，也不是示范首帧。
+实时模式不写--steps表示持续运行，直到q/Ctrl+C或故障停止；显式--steps=N仍限制控制周期数（含等待）。离线dataset模式默认仍为100帧。
+q / 第一次Ctrl+C / 达到显式指定的steps：停止取新策略动作，双臂缓慢返回初始关节姿态，夹爪保持退出时开口。
+初始姿态若有小幅越过控制器限位的偏差，回位目标裁到名义边界，不保证精确回到越界读数。
+回位中再次q或Ctrl+C：中止回位并请求SDK急停；断连、硬件/反馈/相机故障或回位超时也直接停止，不强行回位。
+正常回位后保持最终位置，不发送急停、不失能、不自动张爪；保持21.0服务运行，下一轮直接重新运行评估命令并按r/s。
+保持期间仍监测反馈、控制器状态、相机和跟踪偏差；故障或关闭发送端服务仍会急停，必要时需手动reset。保持不是零力矩，请勿强行手掰。
+return-joint-speed为r对齐/退出回位的关节目标变化率（rad/s），默认0.15；return-gripper-speed为r对齐夹爪目标变化率，默认0.01。
+r对齐/q回位采用至少30Hz目标更新及平滑起停插值；即使frequency=10，这两段也以30Hz更新，策略执行频率仍为10Hz。
+两者同时受客户端joint/gripper-speed和服务端上限限制；return-timeout是一次对齐/回位的最长时间（秒）。
+慢速回位不保证路径无碰撞；模型计算期间q/Ctrl+C请求在本次推理返回后处理，不替代实体急停。
+关节/夹爪速度上限取服务端和客户端较小值，调速时两端一起改；跟踪偏差阈值在21.0修改。
+动作超时取服务端timeout和客户端command-timeout较小值；等待s时持续保持目标和刷新动作心跳。
+日志phase区分policy/alignment/return，保存state/command/目标及耗时，旁边.run.json保存推理配置。
+发送端与评估端都需要同步本次更新；旧发送端缺少finish_hold正常结束接口，会在使能前被拒绝。
+以上经过模拟SDK测试，尚未执行实机回位验证；21.1只读不能作为22.2实机安全性的保证。
+
+ALOHA 保守平滑试用（2026-10-31）：
+21.0启用smooth-control：机器人端30Hz独立跟踪，关节加速度0.6rad/s²、夹爪加速度0.04m/s²，原速度/限位/故障停止保留。
+加速度约束用于常规跟踪；目标反向、端点和安全停止优先禁止向错误方向运动，不保证所有边界都严格连续。
+22.1仅PI05启用async-prefetch，原n-action-steps=50、frequency=10不变；剩5步时提前预测，同时间步重叠部分各占50%，过期动作丢弃。
+因此50仍为每块预测取用上限，不保证每个块的50步全部原样执行。启动或队列暂空时保持已确认目标，超过2秒无可用动作报错停止。
+首次试用可复制22.1命令删除--execute先只读检查；不需改50或10。DM05先保留同步推理，服务端平滑为共用设置。
+要单独回退异步，删除22.1的--async-prefetch；要回退服务端平滑，删除21.0的--smooth-control并重启服务。
+须同步本地agilex_image_service至机器人并重启，再运行更新后的评估端；本次未代为上传或实机运行。
+日志async记录队列/等待状态，async_wait表示只保持没有策略动作；平滑模式command为服务端响应时最新实际下发值，不是本次目标立即执行后的值。
+
+ALOHA adaptive-tracking（参考S1）：22.1增加--adaptive-tracking，需更新发送端并启用--smooth-control。
+比较服务器限位裁剪后接纳的上一目标与双臂反馈，最大关节误差>0.075rad（4.30°）时保持该目标，暂停策略队列和异步时间步；<=0.055rad（3.15°）恢复。
+等待超过2秒则停止；不增加速度，也不扩大硬件限位。暂停期间失效的后台预测会丢弃，已排队动作不消耗。
+日志tracking_wait记录追踪等待；steps仍按控制循环计数，包含等待周期，实际策略动作数可能减少。删除--adaptive-tracking可回退。
+这会主动降低动作推进速度，不保证消除模型误差；若频繁等待或超时，应检查轨迹与限速匹配，不应直接放宽阈值。
+
+ALOHA PI05 30Hz小幅提速配置（2026-11-01，待实机验证）：
+21.0关节速度0.4rad/s、加速度0.8rad/s²；22.1关节速度同步0.4rad/s，frequency保留30。两项比上一档增加约33%，不提高SDK速度比例。
+夹爪速度/加速度、回位速度、硬件限位、跟踪等待阈值及两秒等待超时、反馈超时均保持原值。22.2的客户端速度仍为0.3rad/s，但共用服务端加速度上限为0.8rad/s²。
+这只是减少速度/加速限幅导致的等待，不保证30Hz每周期都有新策略动作，更不保证任务成功。
+本次已发生碰桌和CAN发送失败，须先排除通信故障并确认无碰撞路径，再进行实机验证；不可通过加速或扩大反馈超时解决碰撞。
+回退：21.0改回joint-speed=0.3、joint-acceleration=0.6，22.1改回joint-speed=0.3；更改服务端参数须重启发送端。
+
+ALOHA PI05 当前20Hz试用档（替代上面的30Hz提速档）：
+21.0关节速度0.45rad/s、加速度0.9rad/s²；22.1关节速度0.45rad/s、frequency=20。服务端control-frequency仍为30Hz。
+比上一档速度/加速度各增加12.5%；不改硬件限位、跟踪等待阈值/超时、夹爪及回位速度。共用服务端加速度上限也影响DM05，DM05客户端速度仍为0.3rad/s。
+20Hz仅为策略控制循环频率，跟踪等待仍会暂停策略动作，不能保证持续每秒20个新动作或任务成功。
+须先排除此前碰桌及CAN发送故障；仅修改配置，不代表已验证实机安全或成功率。重启21.0后参数才生效。
+回退上一档：21.0速度0.4、加速度0.8，22.1速度0.4；frequency可保留20以单独对比速度影响。
+
+当前PI05夹爪提速试用档（2026-11-01，覆盖前述夹爪参数）：
+21.0夹爪速度0.04m/s、加速度0.08m/s²；22.1夹爪速度同步0.04m/s，夹持力度不变。机械臂速度0.45rad/s、加速度0.9rad/s²保持不变。
+22.2客户端夹爪速度仍为0.02m/s，但共用发送端夹爪加速度上限变为0.08m/s²；回位/对齐夹爪速度仍为0.01m/s。
+本次只提高夹爪速度，不实现闭合完成后才抬臂的协调，也不解决阻挡时持续施力问题。先排除碰桌/通信故障，不能据此保证实机安全或抓取成功。
+重启21.0服务后使用22.1；回退时21.0改回gripper-speed=0.02、gripper-acceleration=0.04，22.1改回gripper-speed=0.02。
+
+PI05/DM05误差微调已回退（2026-11-02）：
+21.0删除tracking-response-s覆盖，恢复服务端默认0.15秒；PI05预取5步、DM05预取10步。
+保留当前两条命令的15Hz，以及原有异步推理、跟踪等待、速度、加速度、限位和故障停止设置。
+日志改用aloha_pi05_live_execute_rollback.jsonl和aloha_dm05_live_execute_rollback.jsonl，保留基线及tune1日志用于对比。
+停止评估后，在机器人端使用更新后的21.0命令重启服务；仅重启工作站评估不能撤销服务端正在使用的0.12秒参数。
+本次仅回退微调，不代表已解决碰杯、夹爪闭合/抬臂协调或受阻持续施力问题。

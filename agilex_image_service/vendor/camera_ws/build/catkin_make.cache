@@ -1,0 +1,2 @@
+realsense-ros/realsense2_camera:realsense-ros/realsense2_description:ros_astra_camera
+-DPYTHON_EXECUTABLE=/usr/bin/python3 -DCMAKE_BUILD_TYPE=Release -DCATKIN_DEVEL_PREFIX=/home/jchen572/code_file/cobot_magic/camera_ws/devel -DCMAKE_INSTALL_PREFIX=/home/jchen572/code_file/cobot_magic/camera_ws/install -G Unix Makefiles

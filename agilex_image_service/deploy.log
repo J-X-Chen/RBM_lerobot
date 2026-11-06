@@ -1,0 +1,394 @@
+created virtual environment CPython3.8.10.final.0-64 in 98ms
+  creator CPython3Posix(dest=/home/jchen572/code_file/agilex_image_service/.venv, clear=False, no_vcs_ignore=False, global=True)
+  seeder FromAppData(download=False, pip=bundle, setuptools=bundle, wheel=bundle, via=copy, app_data_dir=/home/jchen572/.local/share/virtualenv)
+    added seed packages: pip==24.2, setuptools==75.1.0, wheel==0.44.0
+  activators BashActivator,CShellActivator,FishActivator,NushellActivator,PowerShellActivator,PythonActivator
+Collecting importlib-metadata==8.5.0
+  Downloading importlib_metadata-8.5.0-py3-none-any.whl.metadata (4.8 kB)
+Collecting zipp>=3.20 (from importlib-metadata==8.5.0)
+  Downloading zipp-3.20.2-py3-none-any.whl.metadata (3.7 kB)
+Downloading importlib_metadata-8.5.0-py3-none-any.whl (26 kB)
+Downloading zipp-3.20.2-py3-none-any.whl (9.2 kB)
+WARNING: Error parsing dependencies of distro-info: Invalid version: '0.23ubuntu1'
+WARNING: Error parsing dependencies of python-debian: Invalid version: '0.1.36ubuntu1'
+Installing collected packages: zipp, importlib-metadata
+  Attempting uninstall: zipp
+    Found existing installation: zipp 1.0.0
+    Not uninstalling zipp at /usr/lib/python3/dist-packages, outside environment /home/jchen572/code_file/agilex_image_service/.venv
+    Can't uninstall 'zipp'. No files were found to uninstall.
+  Attempting uninstall: importlib-metadata
+    Found existing installation: importlib-metadata 1.5.0
+    Not uninstalling importlib-metadata at /usr/lib/python3/dist-packages, outside environment /home/jchen572/code_file/agilex_image_service/.venv
+    Can't uninstall 'importlib-metadata'. No files were found to uninstall.
+Successfully installed importlib-metadata-8.5.0 zipp-3.20.2
+
+[notice] A new release of pip is available: 24.2 -> 25.0.1
+[notice] To update, run: /home/jchen572/code_file/agilex_image_service/.venv/bin/python -m pip install --upgrade pip
+Collecting pyzmq==27.1.0
+  Using cached pyzmq-27.1.0-cp38-cp38-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (6.0 kB)
+Collecting python-can==3.3.4
+  Using cached python-can-3.3.4.tar.gz (179 kB)
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Requirement already satisfied: rospkg in /usr/lib/python3/dist-packages (1.5.0)
+Requirement already satisfied: catkin_pkg in /usr/lib/python3/dist-packages (1.0.0)
+Collecting wrapt~=1.10 (from python-can==3.3.4)
+  Downloading wrapt-1.17.3-cp38-cp38-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (6.4 kB)
+Collecting aenum (from python-can==3.3.4)
+  Downloading aenum-3.1.17-py3-none-any.whl.metadata (3.8 kB)
+Requirement already satisfied: PyYAML in /usr/lib/python3/dist-packages (from rospkg) (5.3.1)
+Requirement already satisfied: docutils in /usr/lib/python3/dist-packages (from catkin_pkg) (0.16)
+Requirement already satisfied: python-dateutil in /usr/lib/python3/dist-packages (from catkin_pkg) (2.7.3)
+Requirement already satisfied: pyparsing in /usr/lib/python3/dist-packages (from catkin_pkg) (2.4.6)
+Requirement already satisfied: setuptools in ./.venv/lib/python3.8/site-packages (from catkin_pkg) (75.1.0)
+Using cached pyzmq-27.1.0-cp38-cp38-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (864 kB)
+Downloading wrapt-1.17.3-cp38-cp38-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (84 kB)
+Downloading aenum-3.1.17-py3-none-any.whl (165 kB)
+Building wheels for collected packages: python-can
+  Building wheel for python-can (setup.py): started
+  Building wheel for python-can (setup.py): finished with status 'done'
+  Created wheel for python-can: filename=python_can-3.3.4-py2.py3-none-any.whl size=154184 sha256=655929fb057d03fc07e0f9480ac199dbdbd229ccd5e7affcd65c9ce207cf028b
+  Stored in directory: /home/jchen572/.cache/pip/wheels/92/22/e3/45ef04fb8e96202d5fd6dece1ee28ed727848d7a22a1cae20f
+Successfully built python-can
+WARNING: Error parsing dependencies of distro-info: Invalid version: '0.23ubuntu1'
+WARNING: Error parsing dependencies of python-debian: Invalid version: '0.1.36ubuntu1'
+Installing collected packages: aenum, wrapt, pyzmq, python-can
+Successfully installed aenum-3.1.17 python-can-3.3.4 pyzmq-27.1.0 wrapt-1.17.3
+
+[notice] A new release of pip is available: 24.2 -> 25.0.1
+[notice] To update, run: /home/jchen572/code_file/agilex_image_service/.venv/bin/python -m pip install --upgrade pip
+-- The C compiler identification is GNU 9.4.0
+-- The CXX compiler identification is GNU 9.4.0
+-- Check for working C compiler: /usr/bin/cc
+-- Check for working C compiler: /usr/bin/cc -- works
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Check for working CXX compiler: /usr/bin/c++
+-- Check for working CXX compiler: /usr/bin/c++ -- works
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Using CATKIN_DEVEL_PREFIX: /home/jchen572/code_file/agilex_image_service/ros_ws/devel
+-- Using CMAKE_PREFIX_PATH: /opt/ros/noetic
+-- This workspace overlays: /opt/ros/noetic
+-- Found PythonInterp: /usr/bin/python3 (found suitable version "3.8.10", minimum required is "3") 
+-- Using PYTHON_EXECUTABLE: /usr/bin/python3
+-- Using Debian Python package layout
+-- Found PY_em: /usr/lib/python3/dist-packages/em.py  
+-- Using empy: /usr/lib/python3/dist-packages/em.py
+-- Using CATKIN_ENABLE_TESTING: ON
+-- Call enable_testing()
+-- Using CATKIN_TEST_RESULTS_DIR: /home/jchen572/code_file/agilex_image_service/ros_ws/build/test_results
+-- Forcing gtest/gmock from source, though one was otherwise available.
+-- Found gtest sources under '/usr/src/googletest': gtests will be built
+-- Found gmock sources under '/usr/src/googletest': gmock will be built
+-- Found PythonInterp: /usr/bin/python3 (found version "3.8.10") 
+-- Found Threads: TRUE  
+-- Using Python nosetests: /usr/bin/nosetests3
+-- catkin 0.8.10
+-- BUILD_SHARED_LIBS is on
+-- BUILD_SHARED_LIBS is on
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- ~~  traversing 3 packages in topological order:
+-- ~~  - piper
+-- ~~  - piper_msgs
+-- ~~  - astra_camera
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- +++ processing catkin package: 'piper'
+-- ==> add_subdirectory(piper)
+-- Using these message generators: gencpp;geneus;genlisp;gennodejs;genpy
+-- +++ processing catkin package: 'piper_msgs'
+-- ==> add_subdirectory(piper_msgs)
+-- Using these message generators: gencpp;geneus;genlisp;gennodejs;genpy
+-- piper_msgs: 2 messages, 0 services
+-- +++ processing catkin package: 'astra_camera'
+-- ==> add_subdirectory(ros_astra_camera)
+-- Using these message generators: gencpp;geneus;genlisp;gennodejs;genpy
+-- Found OpenCV: /usr (found version "4.2.0") 
+-- Found Boost: /usr/lib/x86_64-linux-gnu/cmake/Boost-1.71.0/BoostConfig.cmake (found version "1.71.0")  
+-- Found PkgConfig: /usr/bin/pkg-config (found version "0.29.1") 
+-- Checking for one of the modules 'libuvc'
+-- Checking for one of the modules 'libglog'
+-- ORRBEC Machine : x86_64
+
+-- ORRBEC Machine Bits : 64
+
+-- ORRBEC : x64
+-- libuvc ..
+-- astra_camera: 3 messages, 9 services
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/jchen572/code_file/agilex_image_service/ros_ws/build
+Scanning dependencies of target _piper_msgs_generate_messages_check_deps_PosCmd
+Scanning dependencies of target std_msgs_generate_messages_py
+[  0%] Built target std_msgs_generate_messages_py
+Scanning dependencies of target actionlib_msgs_generate_messages_py
+[  0%] Built target actionlib_msgs_generate_messages_py
+Scanning dependencies of target _piper_msgs_generate_messages_check_deps_PiperStatusMsg
+[  0%] Built target _piper_msgs_generate_messages_check_deps_PosCmd
+Scanning dependencies of target actionlib_msgs_generate_messages_nodejs
+[  0%] Built target actionlib_msgs_generate_messages_nodejs
+Scanning dependencies of target std_msgs_generate_messages_nodejs
+[  0%] Built target _piper_msgs_generate_messages_check_deps_PiperStatusMsg
+[  0%] Built target std_msgs_generate_messages_nodejs
+Scanning dependencies of target std_msgs_generate_messages_eus
+Scanning dependencies of target actionlib_msgs_generate_messages_eus
+[  0%] Built target std_msgs_generate_messages_eus
+[  0%] Built target actionlib_msgs_generate_messages_eus
+Scanning dependencies of target actionlib_msgs_generate_messages_cpp
+Scanning dependencies of target std_msgs_generate_messages_cpp
+[  0%] Built target actionlib_msgs_generate_messages_cpp
+[  0%] Built target std_msgs_generate_messages_cpp
+Scanning dependencies of target actionlib_msgs_generate_messages_lisp
+Scanning dependencies of target std_msgs_generate_messages_lisp
+[  0%] Built target actionlib_msgs_generate_messages_lisp
+[  0%] Built target std_msgs_generate_messages_lisp
+Scanning dependencies of target dynamic_reconfigure_generate_messages_nodejs
+Scanning dependencies of target sensor_msgs_generate_messages_nodejs
+[  0%] Built target dynamic_reconfigure_generate_messages_nodejs
+[  0%] Built target sensor_msgs_generate_messages_nodejs
+Scanning dependencies of target sensor_msgs_generate_messages_lisp
+Scanning dependencies of target sensor_msgs_generate_messages_cpp
+[  0%] Built target sensor_msgs_generate_messages_lisp
+[  0%] Built target sensor_msgs_generate_messages_cpp
+Scanning dependencies of target sensor_msgs_generate_messages_py
+Scanning dependencies of target geometry_msgs_generate_messages_py
+[  0%] Built target sensor_msgs_generate_messages_py
+[  0%] Built target geometry_msgs_generate_messages_py
+Scanning dependencies of target geometry_msgs_generate_messages_nodejs
+Scanning dependencies of target geometry_msgs_generate_messages_lisp
+[  0%] Built target geometry_msgs_generate_messages_nodejs
+[  0%] Built target geometry_msgs_generate_messages_lisp
+Scanning dependencies of target geometry_msgs_generate_messages_cpp
+Scanning dependencies of target roscpp_generate_messages_nodejs
+[  0%] Built target geometry_msgs_generate_messages_cpp
+[  0%] Built target roscpp_generate_messages_nodejs
+Scanning dependencies of target rosgraph_msgs_generate_messages_cpp
+Scanning dependencies of target rosgraph_msgs_generate_messages_py
+[  0%] Built target rosgraph_msgs_generate_messages_cpp
+[  0%] Built target rosgraph_msgs_generate_messages_py
+Scanning dependencies of target rosgraph_msgs_generate_messages_eus
+Scanning dependencies of target actionlib_generate_messages_nodejs
+[  0%] Built target rosgraph_msgs_generate_messages_eus
+[  0%] Built target actionlib_generate_messages_nodejs
+Scanning dependencies of target actionlib_generate_messages_py
+Scanning dependencies of target rosgraph_msgs_generate_messages_lisp
+[  0%] Built target actionlib_generate_messages_py
+[  0%] Built target rosgraph_msgs_generate_messages_lisp
+Scanning dependencies of target roscpp_generate_messages_lisp
+Scanning dependencies of target actionlib_generate_messages_lisp
+[  0%] Built target roscpp_generate_messages_lisp
+[  0%] Built target actionlib_generate_messages_lisp
+Scanning dependencies of target roscpp_generate_messages_py
+Scanning dependencies of target actionlib_generate_messages_eus
+[  0%] Built target roscpp_generate_messages_py
+[  0%] Built target actionlib_generate_messages_eus
+Scanning dependencies of target geometry_msgs_generate_messages_eus
+Scanning dependencies of target sensor_msgs_generate_messages_eus
+[  0%] Built target geometry_msgs_generate_messages_eus
+[  0%] Built target sensor_msgs_generate_messages_eus
+Scanning dependencies of target roscpp_generate_messages_cpp
+Scanning dependencies of target roscpp_generate_messages_eus
+[  0%] Built target roscpp_generate_messages_cpp
+[  0%] Built target roscpp_generate_messages_eus
+Scanning dependencies of target actionlib_generate_messages_cpp
+Scanning dependencies of target rosgraph_msgs_generate_messages_nodejs
+[  0%] Built target actionlib_generate_messages_cpp
+[  0%] Built target rosgraph_msgs_generate_messages_nodejs
+Scanning dependencies of target _astra_camera_generate_messages_check_deps_GetString
+Scanning dependencies of target _astra_camera_generate_messages_check_deps_SetString
+[  0%] Built target _astra_camera_generate_messages_check_deps_GetString
+[  0%] Built target _astra_camera_generate_messages_check_deps_SetString
+Scanning dependencies of target _astra_camera_generate_messages_check_deps_DeviceInfo
+Scanning dependencies of target _astra_camera_generate_messages_check_deps_GetInt32
+[  0%] Built target _astra_camera_generate_messages_check_deps_DeviceInfo
+[  0%] Built target _astra_camera_generate_messages_check_deps_GetInt32
+Scanning dependencies of target _astra_camera_generate_messages_check_deps_SetInt32
+Scanning dependencies of target _astra_camera_generate_messages_check_deps_GetDouble
+[  0%] Built target _astra_camera_generate_messages_check_deps_SetInt32
+[  0%] Built target _astra_camera_generate_messages_check_deps_GetDouble
+Scanning dependencies of target _astra_camera_generate_messages_check_deps_Extrinsics
+Scanning dependencies of target _astra_camera_generate_messages_check_deps_GetCameraParams
+[  0%] Built target _astra_camera_generate_messages_check_deps_Extrinsics
+[  0%] Built target _astra_camera_generate_messages_check_deps_GetCameraParams
+Scanning dependencies of target _astra_camera_generate_messages_check_deps_Metadata
+Scanning dependencies of target _astra_camera_generate_messages_check_deps_GetBool
+[  0%] Built target _astra_camera_generate_messages_check_deps_Metadata
+[  0%] Built target _astra_camera_generate_messages_check_deps_GetBool
+Scanning dependencies of target _astra_camera_generate_messages_check_deps_GetCameraInfo
+Scanning dependencies of target _astra_camera_generate_messages_check_deps_GetDeviceInfo
+[  0%] Built target _astra_camera_generate_messages_check_deps_GetCameraInfo
+[  0%] Built target _astra_camera_generate_messages_check_deps_GetDeviceInfo
+Scanning dependencies of target tf2_msgs_generate_messages_eus
+Scanning dependencies of target std_srvs_generate_messages_py
+[  0%] Built target tf2_msgs_generate_messages_eus
+[  0%] Built target std_srvs_generate_messages_py
+Scanning dependencies of target std_srvs_generate_messages_eus
+Scanning dependencies of target tf2_msgs_generate_messages_cpp
+[  0%] Built target std_srvs_generate_messages_eus
+[  0%] Built target tf2_msgs_generate_messages_cpp
+Scanning dependencies of target std_srvs_generate_messages_cpp
+Scanning dependencies of target dynamic_reconfigure_gencfg
+[  0%] Built target std_srvs_generate_messages_cpp
+[  0%] Built target dynamic_reconfigure_gencfg
+Scanning dependencies of target dynamic_reconfigure_generate_messages_eus
+Scanning dependencies of target std_srvs_generate_messages_lisp
+[  0%] Built target dynamic_reconfigure_generate_messages_eus
+[  0%] Built target std_srvs_generate_messages_lisp
+Scanning dependencies of target dynamic_reconfigure_generate_messages_lisp
+Scanning dependencies of target dynamic_reconfigure_generate_messages_py
+[  0%] Built target dynamic_reconfigure_generate_messages_lisp
+[  0%] Built target dynamic_reconfigure_generate_messages_py
+Scanning dependencies of target tf2_msgs_generate_messages_py
+Scanning dependencies of target dynamic_reconfigure_generate_messages_cpp
+[  0%] Built target tf2_msgs_generate_messages_py
+[  0%] Built target dynamic_reconfigure_generate_messages_cpp
+Scanning dependencies of target tf2_msgs_generate_messages_lisp
+Scanning dependencies of target tf2_msgs_generate_messages_nodejs
+[  0%] Built target tf2_msgs_generate_messages_lisp
+[  0%] Built target tf2_msgs_generate_messages_nodejs
+Scanning dependencies of target astra_camera_gencfg
+Scanning dependencies of target std_srvs_generate_messages_nodejs
+[  0%] Built target std_srvs_generate_messages_nodejs
+[  1%] Generating dynamic reconfigure files from cfg/Astra.cfg: /home/jchen572/code_file/agilex_image_service/ros_ws/devel/include/astra_camera/AstraConfig.h /home/jchen572/code_file/agilex_image_service/ros_ws/devel/lib/python3/dist-packages/astra_camera/cfg/AstraConfig.py
+Scanning dependencies of target astra_camera_generate_messages_eus
+[  2%] Generating EusLisp code from astra_camera/DeviceInfo.msg
+Generating reconfiguration files for Astra in astra_camera
+Wrote header file in /home/jchen572/code_file/agilex_image_service/ros_ws/devel/include/astra_camera/AstraConfig.h
+[  3%] Generating EusLisp code from astra_camera/Extrinsics.msg
+[  3%] Built target astra_camera_gencfg
+[  4%] Generating EusLisp code from astra_camera/Metadata.msg
+[  5%] Generating EusLisp code from astra_camera/GetBool.srv
+[  6%] Generating EusLisp code from astra_camera/GetCameraInfo.srv
+[  7%] Generating EusLisp code from astra_camera/GetCameraParams.srv
+[  8%] Generating EusLisp code from astra_camera/GetDeviceInfo.srv
+[  9%] Generating EusLisp code from astra_camera/GetDouble.srv
+[ 10%] Generating EusLisp code from astra_camera/GetInt32.srv
+[ 12%] Generating EusLisp code from astra_camera/GetString.srv
+[ 13%] Generating EusLisp code from astra_camera/SetInt32.srv
+[ 14%] Generating EusLisp code from astra_camera/SetString.srv
+Scanning dependencies of target astra_camera_generate_messages_py
+[ 15%] Generating Python from MSG astra_camera/DeviceInfo
+[ 16%] Generating EusLisp manifest code for astra_camera
+[ 17%] Generating Python from MSG astra_camera/Extrinsics
+[ 18%] Generating Python from MSG astra_camera/Metadata
+[ 18%] Built target astra_camera_generate_messages_eus
+Scanning dependencies of target astra_camera_generate_messages_nodejs
+[ 19%] Generating Javascript code from astra_camera/DeviceInfo.msg
+[ 20%] Generating Javascript code from astra_camera/Extrinsics.msg
+[ 21%] Generating Javascript code from astra_camera/Metadata.msg
+[ 23%] Generating Python code from SRV astra_camera/GetBool
+[ 24%] Generating Javascript code from astra_camera/GetBool.srv
+[ 25%] Generating Javascript code from astra_camera/GetCameraInfo.srv
+[ 26%] Generating Javascript code from astra_camera/GetCameraParams.srv
+[ 27%] Generating Python code from SRV astra_camera/GetCameraInfo
+[ 28%] Generating Javascript code from astra_camera/GetDeviceInfo.srv
+[ 29%] Generating Javascript code from astra_camera/GetDouble.srv
+[ 30%] Generating Javascript code from astra_camera/GetInt32.srv
+[ 31%] Generating Javascript code from astra_camera/GetString.srv
+[ 32%] Generating Python code from SRV astra_camera/GetCameraParams
+[ 34%] Generating Javascript code from astra_camera/SetInt32.srv
+[ 35%] Generating Javascript code from astra_camera/SetString.srv
+[ 35%] Built target astra_camera_generate_messages_nodejs
+Scanning dependencies of target astra_camera_generate_messages_lisp
+[ 36%] Generating Lisp code from astra_camera/DeviceInfo.msg
+[ 37%] Generating Python code from SRV astra_camera/GetDeviceInfo
+[ 38%] Generating Lisp code from astra_camera/Extrinsics.msg
+[ 39%] Generating Lisp code from astra_camera/Metadata.msg
+[ 40%] Generating Lisp code from astra_camera/GetBool.srv
+[ 41%] Generating Lisp code from astra_camera/GetCameraInfo.srv
+[ 42%] Generating Python code from SRV astra_camera/GetDouble
+[ 43%] Generating Lisp code from astra_camera/GetCameraParams.srv
+[ 45%] Generating Lisp code from astra_camera/GetDeviceInfo.srv
+[ 46%] Generating Lisp code from astra_camera/GetDouble.srv
+[ 47%] Generating Python code from SRV astra_camera/GetInt32
+[ 48%] Generating Lisp code from astra_camera/GetInt32.srv
+[ 49%] Generating Lisp code from astra_camera/GetString.srv
+[ 50%] Generating Lisp code from astra_camera/SetInt32.srv
+[ 52%] Generating Python code from SRV astra_camera/GetString
+[ 52%] Generating Lisp code from astra_camera/SetString.srv
+[ 52%] Built target astra_camera_generate_messages_lisp
+[ 53%] Generating Python code from SRV astra_camera/SetInt32
+[ 54%] Generating Python code from SRV astra_camera/SetString
+Scanning dependencies of target piper_msgs_generate_messages_py
+[ 56%] Generating Python from MSG piper_msgs/PiperStatusMsg
+[ 57%] Generating Python msg __init__.py for astra_camera
+[ 58%] Generating Python from MSG piper_msgs/PosCmd
+[ 59%] Generating Python srv __init__.py for astra_camera
+[ 60%] Generating Python msg __init__.py for piper_msgs
+[ 60%] Built target astra_camera_generate_messages_py
+Scanning dependencies of target piper_msgs_generate_messages_nodejs
+[ 61%] Generating Javascript code from piper_msgs/PiperStatusMsg.msg
+[ 61%] Built target piper_msgs_generate_messages_py
+Scanning dependencies of target piper_msgs_generate_messages_eus
+[ 62%] Generating Javascript code from piper_msgs/PosCmd.msg
+[ 63%] Generating EusLisp code from piper_msgs/PiperStatusMsg.msg
+[ 63%] Built target piper_msgs_generate_messages_nodejs
+[ 64%] Generating EusLisp code from piper_msgs/PosCmd.msg
+[ 65%] Generating EusLisp manifest code for piper_msgs
+Scanning dependencies of target piper_msgs_generate_messages_cpp
+[ 67%] Generating C++ code from piper_msgs/PiperStatusMsg.msg
+[ 68%] Generating C++ code from piper_msgs/PosCmd.msg
+[ 68%] Built target piper_msgs_generate_messages_cpp
+Scanning dependencies of target piper_msgs_generate_messages_lisp
+[ 69%] Generating Lisp code from piper_msgs/PiperStatusMsg.msg
+[ 69%] Built target piper_msgs_generate_messages_eus
+[ 70%] Generating Lisp code from piper_msgs/PosCmd.msg
+Scanning dependencies of target astra_camera_generate_messages_cpp
+[ 71%] Generating C++ code from astra_camera/DeviceInfo.msg
+[ 71%] Built target piper_msgs_generate_messages_lisp
+[ 72%] Generating C++ code from astra_camera/Extrinsics.msg
+[ 73%] Generating C++ code from astra_camera/Metadata.msg
+[ 74%] Generating C++ code from astra_camera/GetBool.srv
+[ 75%] Generating C++ code from astra_camera/GetCameraInfo.srv
+[ 76%] Generating C++ code from astra_camera/GetCameraParams.srv
+[ 78%] Generating C++ code from astra_camera/GetDeviceInfo.srv
+[ 79%] Generating C++ code from astra_camera/GetDouble.srv
+[ 80%] Generating C++ code from astra_camera/GetInt32.srv
+[ 81%] Generating C++ code from astra_camera/GetString.srv
+[ 82%] Generating C++ code from astra_camera/SetInt32.srv
+Scanning dependencies of target piper_msgs_generate_messages
+[ 82%] Built target piper_msgs_generate_messages
+[ 83%] Generating C++ code from astra_camera/SetString.srv
+[ 83%] Built target astra_camera_generate_messages_cpp
+Scanning dependencies of target astra_camera_generate_messages
+[ 83%] Built target astra_camera_generate_messages
+Scanning dependencies of target astra_camera
+[ 84%] Building CXX object ros_astra_camera/CMakeFiles/astra_camera.dir/src/point_cloud_proc/point_cloud_xyz.cpp.o
+[ 85%] Building CXX object ros_astra_camera/CMakeFiles/astra_camera.dir/src/point_cloud_proc/point_cloud_xyzrgb.cpp.o
+[ 86%] Building CXX object ros_astra_camera/CMakeFiles/astra_camera.dir/src/d2c_viewer.cpp.o
+[ 87%] Building CXX object ros_astra_camera/CMakeFiles/astra_camera.dir/src/ob_context.cpp.o
+[ 89%] Building CXX object ros_astra_camera/CMakeFiles/astra_camera.dir/src/ob_camera_info.cpp.o
+[ 90%] Building CXX object ros_astra_camera/CMakeFiles/astra_camera.dir/src/ob_camera_node_factory.cpp.o
+[ 91%] Building CXX object ros_astra_camera/CMakeFiles/astra_camera.dir/src/ob_camera_node.cpp.o
+[ 92%] Building CXX object ros_astra_camera/CMakeFiles/astra_camera.dir/src/ros_service.cpp.o
+[ 93%] Building CXX object ros_astra_camera/CMakeFiles/astra_camera.dir/src/utils.cpp.o
+[ 94%] Building CXX object ros_astra_camera/CMakeFiles/astra_camera.dir/src/uvc_camera_driver.cpp.o
+[ 95%] Linking CXX shared library /home/jchen572/code_file/agilex_image_service/ros_ws/devel/lib/libastra_camera.so
+[ 95%] Built target astra_camera
+Scanning dependencies of target list_devices_node
+[ 96%] Building CXX object ros_astra_camera/CMakeFiles/list_devices_node.dir/src/list_devices_node.cpp.o
+Scanning dependencies of target astra_camera_node
+[ 97%] Building CXX object ros_astra_camera/CMakeFiles/astra_camera_node.dir/src/main.cpp.o
+[ 98%] Linking CXX executable /home/jchen572/code_file/agilex_image_service/ros_ws/devel/lib/astra_camera/list_devices_node
+[ 98%] Built target list_devices_node
+[100%] Linking CXX executable /home/jchen572/code_file/agilex_image_service/ros_ws/devel/lib/astra_camera/astra_camera_node
+[100%] Built target astra_camera_node
+Base path: /home/jchen572/code_file/agilex_image_service/ros_ws
+Source space: /home/jchen572/code_file/agilex_image_service/ros_ws/src
+Build space: /home/jchen572/code_file/agilex_image_service/ros_ws/build
+Devel space: /home/jchen572/code_file/agilex_image_service/ros_ws/devel
+Install space: /home/jchen572/code_file/agilex_image_service/ros_ws/install
+Creating symlink "/home/jchen572/code_file/agilex_image_service/ros_ws/src/CMakeLists.txt" pointing to "/opt/ros/noetic/share/catkin/cmake/toplevel.cmake"
+####
+#### Running command: "cmake /home/jchen572/code_file/agilex_image_service/ros_ws/src -DPYTHON_EXECUTABLE=/usr/bin/python3 -DCMAKE_BUILD_TYPE=Release -DCATKIN_DEVEL_PREFIX=/home/jchen572/code_file/agilex_image_service/ros_ws/devel -DCMAKE_INSTALL_PREFIX=/home/jchen572/code_file/agilex_image_service/ros_ws/install -G Unix Makefiles" in "/home/jchen572/code_file/agilex_image_service/ros_ws/build"
+####
+####
+#### Running command: "make -j2" in "/home/jchen572/code_file/agilex_image_service/ros_ws/build"
+####
+/home/jchen572/code_file/agilex_image_service/vendor/sdk/piper_sdk/__init__.py
+validation and fragmented TCP framing passed
+PASS dry-run, mocked control queue, single-arm masking, clear, stale rejection; no ROS publisher created

@@ -1,0 +1,18 @@
+{
+  "left": {
+    "can": "can_left",
+    "joint_min": "auto",
+    "joint_max": "auto",
+    "gripper_max_m": "auto",
+    "gripper_scale": 1.0,
+    "gripper_offset_m": 0.0
+  },
+  "right": {
+    "can": "can_right",
+    "joint_min": "auto",
+    "joint_max": "auto",
+    "gripper_max_m": "auto",
+    "gripper_scale": 1.0,
+    "gripper_offset_m": 0.0
+  }
+}

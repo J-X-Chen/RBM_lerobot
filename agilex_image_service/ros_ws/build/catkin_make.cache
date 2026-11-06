@@ -1,0 +1,2 @@
+piper:piper_msgs:ros_astra_camera
+-DPYTHON_EXECUTABLE=/usr/bin/python3 -DCMAKE_BUILD_TYPE=Release -DCATKIN_DEVEL_PREFIX=/home/jchen572/code_file/agilex_image_service/ros_ws/devel -DCMAKE_INSTALL_PREFIX=/home/jchen572/code_file/agilex_image_service/ros_ws/install -G Unix Makefiles

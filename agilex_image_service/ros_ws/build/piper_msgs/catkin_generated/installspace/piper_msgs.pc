@@ -1,0 +1,8 @@
+prefix=/home/jchen572/code_file/agilex_image_service/ros_ws/install
+
+Name: piper_msgs
+Description: Description of piper_msgs
+Version: 0.0.0
+Cflags: -I${prefix}/include
+Libs: -L${prefix}/lib 
+Requires: actionlib actionlib_msgs control_msgs roscpp rospy sensor_msgs std_msgs trajectory_msgs message_generation geometry_msgs

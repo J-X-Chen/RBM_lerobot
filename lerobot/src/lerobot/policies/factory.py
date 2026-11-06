@@ -412,7 +412,15 @@ def make_policy(
         features = {rename_map.get(key, key): feature for key, feature in features.items()}
 
     cfg.output_features = {key: ft for key, ft in features.items() if ft.type is FeatureType.ACTION}
-    if not cfg.input_features:
+    # Cobot fine-tuning adopts the recording's three cameras and native 14D
+    # state, even when the base checkpoint describes a different embodiment.
+    # Direct checkpoint inference returned above keeps its saved contract.
+    cobot_finetuning = (
+        ds_meta is not None
+        and getattr(ds_meta, "robot_type", None) == "cobot_magic"
+        and cfg.type in {"pi05", "dm05"}
+    )
+    if not cfg.input_features or cobot_finetuning:
         cfg.input_features = {key: ft for key, ft in features.items() if key not in cfg.output_features}
 
     # Store action feature names for relative_exclude_joints support

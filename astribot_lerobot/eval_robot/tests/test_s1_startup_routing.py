@@ -9,6 +9,27 @@ import numpy as np
 
 
 class StartupRoutingTest(unittest.TestCase):
+    def test_arms_only_alignment_preserves_fresh_nonpolicy_pose(self):
+        path = Path(__file__).resolve().parents[1] / 'eval_s1.py'
+        tree = ast.parse(path.read_text(encoding='utf-8-sig'))
+        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                  and n.name == '_astribot_s1_nonchassis_target')
+        ns = dict(np=np, ASTRIBOT_S1_FULL_DIM=25, ASTRIBOT_S1_CHASSIS_SLICE=slice(0, 3),
+                  require_finite_vector=lambda name, value, size: np.asarray(value))
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), str(path), 'exec'), ns)
+        align = ns[fn.name]
+        target = np.arange(25, dtype=float)
+        reference = target + 100
+        result = align(target, reference, arms_only=True)
+        np.testing.assert_array_equal(result[7:23], target[7:23])
+        np.testing.assert_array_equal(result[:7], reference[:7])
+        np.testing.assert_array_equal(result[23:], reference[23:])
+        refreshed = align(target, reference + 10, arms_only=True)
+        np.testing.assert_array_equal(refreshed[:7], reference[:7] + 10)
+        legacy = align(target, reference)
+        np.testing.assert_array_equal(legacy[3:], target[3:])
+        np.testing.assert_array_equal(target, np.arange(25, dtype=float))
+
     def run_move(self, *, g1, controller_g1=False, delayed=False):
         path = Path(__file__).resolve().parents[1] / 'eval_s1.py'
         tree = ast.parse(path.read_text(encoding='utf-8-sig'))

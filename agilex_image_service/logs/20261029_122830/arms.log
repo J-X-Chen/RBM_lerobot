@@ -1,0 +1,47 @@
+[ERROR] [1793248114.782531]: can_right is loss!!!
+[ERROR] [1793248114.784013]: exit...
+[INFO] [1793248114.556236]: /piper_right_agilex_11278_6350108320756654698/can_port is can_right
+[INFO] [1793248114.558837]: /piper_right_agilex_11278_6350108320756654698/mode is 0
+[INFO] [1793248114.561214]: /piper_right_agilex_11278_6350108320756654698/auto_enable is False
+[ERROR] [1793248114.782247]: can_left is loss!!!
+[ERROR] [1793248114.784014]: exit...
+[INFO] [1793248114.556302]: /piper_left_agilex_11278_316756394929516992/can_port is can_left
+[INFO] [1793248114.558886]: /piper_left_agilex_11278_316756394929516992/mode is 0
+[INFO] [1793248114.561254]: /piper_left_agilex_11278_316756394929516992/auto_enable is False
+... logging to /home/jchen572/.ros/log/31fe0684-d351-11f1-a558-b9fcf1f86b39/roslaunch-agilex-11278.log
+Checking log directory for disk usage. This may take a while.
+Press Ctrl-C to interrupt
+Done checking log file disk usage. Usage is <1GB.
+]2;/home/jchen572/code_file/cobot_magic/Piper_ros_private-ros-noetic/src/piper/launch/start_ms_piper.launch
+[1mstarted roslaunch server http://127.0.0.1:38817/[0m
+
+SUMMARY
+========
+
+PARAMETERS
+ * /piper_left_agilex_11278_316756394929516992/auto_enable: False
+ * /piper_left_agilex_11278_316756394929516992/can_port: can_left
+ * /piper_left_agilex_11278_316756394929516992/mode: 0
+ * /piper_right_agilex_11278_6350108320756654698/auto_enable: False
+ * /piper_right_agilex_11278_6350108320756654698/can_port: can_right
+ * /piper_right_agilex_11278_6350108320756654698/mode: 0
+ * /rosdistro: noetic
+ * /rosversion: 1.16.0
+
+NODES
+  /
+    piper_left_agilex_11278_316756394929516992 (piper/piper_start_ms_node.py)
+    piper_right_agilex_11278_6350108320756654698 (piper/piper_start_ms_node.py)
+
+[1mROS_MASTER_URI=http://127.0.0.1:11311[0m
+]2;/home/jchen572/code_file/cobot_magic/Piper_ros_private-ros-noetic/src/piper/launch/start_ms_piper.launch http://127.0.0.1:11311
+[1mprocess[piper_left_agilex_11278_316756394929516992-1]: started with pid [11331][0m
+[1mprocess[piper_right_agilex_11278_6350108320756654698-2]: started with pid [11334][0m
+[1m[piper_left_agilex_11278_316756394929516992-1] process has finished cleanly
+log file: /home/jchen572/.ros/log/31fe0684-d351-11f1-a558-b9fcf1f86b39/piper_left_agilex_11278_316756394929516992-1*.log[0m
+[1m[piper_right_agilex_11278_6350108320756654698-2] process has finished cleanly
+log file: /home/jchen572/.ros/log/31fe0684-d351-11f1-a558-b9fcf1f86b39/piper_right_agilex_11278_6350108320756654698-2*.log[0m
+all processes on machine have died, roslaunch will exit
+shutting down processing monitor...
+... shutting down processing monitor complete
+[1mdone[0m

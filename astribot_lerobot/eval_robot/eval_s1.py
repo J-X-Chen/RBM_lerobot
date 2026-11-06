@@ -4288,7 +4288,8 @@ def _validate_astribot_s1_eval_action_view(
     return resolved_view
 
 
-def _astribot_s1_nonchassis_target(target_pose: np.ndarray, reference_pose: np.ndarray) -> np.ndarray:
+def _astribot_s1_nonchassis_target(target_pose: np.ndarray, reference_pose: np.ndarray,
+                                 arms_only: bool = False) -> np.ndarray:
     """Keep S1 chassis at the captured/current pose while moving upper body.
 
     The eval control shim commands torso, arms, grippers, and head. It does not
@@ -4298,6 +4299,9 @@ def _astribot_s1_nonchassis_target(target_pose: np.ndarray, reference_pose: np.n
     target = require_finite_vector("Astribot S1 target pose", target_pose, ASTRIBOT_S1_FULL_DIM).copy()
     reference = require_finite_vector("Astribot S1 reference pose", reference_pose, ASTRIBOT_S1_FULL_DIM)
     target[ASTRIBOT_S1_CHASSIS_SLICE] = reference[ASTRIBOT_S1_CHASSIS_SLICE]
+    if arms_only:
+        target[:7] = reference[:7]  # chassis + torso
+        target[23:25] = reference[23:25]  # head; arms+grippers occupy [7:23]
     return target
 
 
@@ -5076,10 +5080,14 @@ def eval_policy(
         ready_arm_pose = get_ready_arm_pose(cfg, arm_ik, lowered_arm_pose)
         dataset_start_arm_pose = init_arm_pose.copy()
         if is_astribot_s1_whole_body_run:
-            dataset_start_arm_pose = _astribot_s1_nonchassis_target(init_arm_pose, lowered_arm_pose)
+            dataset_start_arm_pose = _astribot_s1_nonchassis_target(
+                init_arm_pose, lowered_arm_pose, cfg.astribot_prepare_arms_only)
             logger_mp.info(
-                "Captured Astribot S1 pre-r initial pose. On r, eval will move torso/arms/grippers/head "
-                "to the dataset first frame while keeping the wheeled chassis at the captured value; "
+                ("Arms-only preparation: r/b align 16D arms+grippers to dataset observation.state; "
+                 "torso/chassis/head targets use fresh feedback at each alignment. "
+                 if cfg.astribot_prepare_arms_only else
+                 "Captured Astribot S1 pre-r initial pose. On r, eval will move torso/arms/grippers/head "
+                 "to the dataset first frame while keeping the wheeled chassis at the captured value; ")
                 + ("safe mode: r is range-checked; q disarms without return motion."
                  if cfg.astribot_safe_control else "on q, eval returns to this captured initial pose.")
             )
@@ -5133,7 +5141,11 @@ def eval_policy(
                 pass
 
         def move_to_dataset_first_frame(label: str) -> bool:
+            nonlocal dataset_start_arm_pose
             logger_mp.info(f"{label}: preparing to move robot to dataset starting pose...")
+            if is_astribot_s1_whole_body_run and cfg.astribot_prepare_arms_only:
+                dataset_start_arm_pose = _astribot_s1_nonchassis_target(
+                    init_arm_pose, arm_ctrl.get_current_dual_arm_q(), arms_only=True)
             target_arm_pose = dataset_start_arm_pose if dataset_start_arm_pose is not None else init_arm_pose
             if is_astribot_s1_whole_body_run:
                 _log_astribot_s1_pose_delta(label, arm_ctrl.get_current_dual_arm_q(), target_arm_pose)
@@ -5411,6 +5423,7 @@ def eval_policy(
                     if dataset_start_arm_pose is not None
                     else None,
                     "astribot_s1_chassis_preserved_on_r": bool(is_astribot_s1_whole_body_run),
+                    "astribot_prepare_arms_only": cfg.astribot_prepare_arms_only,
                     "init_ee_pose": _json_array(init_ee_pose),
                     "dataset_action": _json_array(dataset_action),
                     "dataset_action_minus_state_abs_max": _max_abs(dataset_action - dataset_state)
@@ -6050,6 +6063,8 @@ def eval_policy(
 
 @parser.wrap()
 def eval_main(cfg: EvalRealConfig):
+    if getattr(cfg, "astribot_prepare_arms_only", False) and cfg.arm.lower() != "astribot_s1":
+        raise ValueError("astribot_prepare_arms_only requires Astribot S1")
     if getattr(cfg, "astribot_rtc", False):
         if not (cfg.astribot_safe_control and cfg.astribot_g1_control
                 and getattr(cfg.policy, "type", None) == "pi05" and not cfg.use_dataset):

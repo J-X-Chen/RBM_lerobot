@@ -314,6 +314,7 @@ class EvalRealConfig:
     repo_id: str
     policy: PreTrainedConfig | None = None
     astribot_rtc: bool = False  # PI05 synchronous RTC prefix guidance; no async worker.
+    astribot_prepare_arms_only: bool = False  # r/b align 16D arms+grippers; preserve current body/head.
 
     root: str = ""
     dataset_sample_ratio: float = 1.0

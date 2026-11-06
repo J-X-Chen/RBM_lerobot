@@ -1,0 +1,347 @@
+[33m[ WARN] [1793248953.642227528]: check device status 1[0m
+[33m[ WARN] [1793248953.642264247]: [0m
+[33m[ WARN] [1793248953.746707835]: OBCameraNode::setupDevices failed to create stream ir, stream is disabled or sensor not found[0m
+[33m[ WARN] [1793248953.853470060]: Publishing dynamic camera transforms (/tf) at 10 Hz[0m
+unsupported descriptor subtype VS_COLORFORMAT
+[33m[ WARN] [1793248954.004512707]: Camera calibration file /home/jchen572/.ros/camera_info/rgb_camera.yaml not found.[0m
+attempt to claim already-claimed interface 1
+[33m[ WARN] [1793248954.016754357]: Camera calibration file /home/jchen572/.ros/camera_info/ir_camera.yaml not found.[0m
+[33m[ WARN] [1793248954.504553840]: check device status 1[0m
+[33m[ WARN] [1793248954.504568908]: [0m
+[33m[ WARN] [1793248954.608504574]: OBCameraNode::setupDevices failed to create stream ir, stream is disabled or sensor not found[0m
+[33m[ WARN] [1793248954.714576438]: Publishing dynamic camera transforms (/tf) at 10 Hz[0m
+unsupported descriptor subtype VS_COLORFORMAT
+[33m[ WARN] [1793248954.788829683]: Camera calibration file /home/jchen572/.ros/camera_info/rgb_camera.yaml not found.[0m
+[33m[ WARN] [1793248954.802035750]: Camera calibration file /home/jchen572/.ros/camera_info/ir_camera.yaml not found.[0m
+attempt to claim already-claimed interface 1
+[33m[ WARN] [1793248955.077063688]: check device status 1[0m
+[33m[ WARN] [1793248955.079674988]: [0m
+[33m[ WARN] [1793248955.184848653]: OBCameraNode::setupDevices failed to create stream ir, stream is disabled or sensor not found[0m
+[33m[ WARN] [1793248955.295189398]: Publishing dynamic camera transforms (/tf) at 10 Hz[0m
+unsupported descriptor subtype VS_COLORFORMAT
+[33m[ WARN] [1793248955.424823671]: Camera calibration file /home/jchen572/.ros/camera_info/rgb_camera.yaml not found.[0m
+attempt to claim already-claimed interface 1
+[33m[ WARN] [1793248955.442690970]: Camera calibration file /home/jchen572/.ros/camera_info/ir_camera.yaml not found.[0m
+[0m[ INFO] [1793248953.197552934]: Starting camera node...[0m
+[0m[ INFO] [1793248953.202250439]: Creating camera node...[0m
+[0m[ INFO] [1793248953.202556054]: OBCameraNodeFactory::OBCameraNodeFactory[0m
+[0m[ INFO] [1793248953.202564313]: Initializing OBCameraNodeFactory...[0m
+[0m[ INFO] [1793248953.213214307]: init Done[0m
+[0m[ INFO] [1793248953.213226084]: Creating camera node done...[0m
+[0m[ INFO] [1793248953.213239071]: Query device[0m
+[0m[ INFO] [1793248953.213258462]: Found 3 devices[0m
+[0m[ INFO] [1793248953.313349023]: Device connected: (name, Astra) (uri, 2bc5/0657@1/17) (vendor, Orbbec)[0m
+[0m[ INFO] [1793248953.313371091]: Trying to open device: 2bc5/0657@1/17[0m
+[0m[ INFO] [1793248953.413446353]: OBCameraNodeFactory::onDeviceConnected Open device start[0m
+[0m[ INFO] [1793248953.469985661]: OBCameraNodeFactory::onDeviceConnected Open device done, STATUS 0[0m
+[0m[ INFO] [1793248953.470012783]: Device connected: Astra serial number: CC1N16200KR does not match expected serial number: CC1N16202T0[0m
+[0m[ INFO] [1793248953.470023324]: Device: 2bc5/0657@1/17 is not connected[0m
+[0m[ INFO] [1793248953.471943310]: OBCameraNodeFactory::onDeviceConnected close done.[0m
+[0m[ INFO] [1793248953.627867682]: Device connected: Astra serial number: CC1N16202T0[0m
+[0m[ INFO] [1793248953.627891401]: Start device CC1N16202T0[0m
+[0m[ INFO] [1793248953.753853194]: set depth video mode Resolution :640x400@30Hz
+format PIXEL_FORMAT_DEPTH_1_MM[0m
+[0m[ INFO] [1793248953.853416609]: OBCameraNode::setupUVCCamera[0m
+[0m[ INFO] [1793248953.867215223]: open uvc camera[0m
+[0m[ INFO] [1793248953.911724334]: UVCCameraDriver image subscribed[0m
+[0m[ INFO] [1793248954.002492469]: uvc config: vendor_id: 0
+product_id: 0
+width: 640
+height: 480
+fps: 30
+serial_number: CC1N16202T0
+format: mjpeg
+[0m
+[0m[ INFO] [1793248954.004373292]: open camera success[0m
+[0m[ INFO] [1793248954.004407180]: using default calibration URL[0m
+[0m[ INFO] [1793248954.004436566]: camera calibration URL: file:///home/jchen572/.ros/camera_info/rgb_camera.yaml[0m
+[0m[ INFO] [1793248954.004489033]: Unable to open camera calibration file [/home/jchen572/.ros/camera_info/rgb_camera.yaml][0m
+[0m[ INFO] [1793248954.006235653]: set uvc mode 640x480@30 format mjpeg[0m
+[0m[ INFO] [1793248954.016726526]: using default calibration URL[0m
+[0m[ INFO] [1793248954.016737941]: camera calibration URL: file:///home/jchen572/.ros/camera_info/ir_camera.yaml[0m
+[0m[ INFO] [1793248954.016748103]: Unable to open camera calibration file [/home/jchen572/.ros/camera_info/ir_camera.yaml][0m
+[0m[ INFO] [1793248954.016776395]: OBCameraNode initialized[0m
+[0m[ INFO] [1793248954.016782268]: Start device CC1N16202T0 done[0m
+[0m[ INFO] [1793248954.173340603]: Device connected: Astra serial number: CC1N16200KJ does not match expected serial number: CC1N16202T0[0m
+[0m[ INFO] [1793248961.127679956]: UVCCameraDriver image unsubscribed[0m
+[0m[ INFO] [1793248961.127719741]: stop uvc streaming[0m
+[0m[ INFO] [1793248953.200644835]: Starting camera node...[0m
+[0m[ INFO] [1793248953.206204094]: Creating camera node...[0m
+[0m[ INFO] [1793248953.206672846]: OBCameraNodeFactory::OBCameraNodeFactory[0m
+[0m[ INFO] [1793248953.206680633]: Initializing OBCameraNodeFactory...[0m
+[0m[ INFO] [1793248953.218049299]: init Done[0m
+[0m[ INFO] [1793248953.218059392]: Creating camera node done...[0m
+[0m[ INFO] [1793248953.218070244]: Query device[0m
+[0m[ INFO] [1793248953.218086410]: Found 3 devices[0m
+[0m[ INFO] [1793248953.318170662]: Device connected: (name, Astra) (uri, 2bc5/0657@1/17) (vendor, Orbbec)[0m
+[0m[ INFO] [1793248954.218134784]: wait for device CC1N16200KR to be connected[0m
+[0m[ INFO] [1793248954.333514834]: Trying to open device: 2bc5/0657@1/17[0m
+[0m[ INFO] [1793248954.433595694]: OBCameraNodeFactory::onDeviceConnected Open device start[0m
+[0m[ INFO] [1793248954.490438450]: OBCameraNodeFactory::onDeviceConnected Open device done, STATUS 0[0m
+[0m[ INFO] [1793248954.490470782]: Device connected: Astra serial number: CC1N16200KR[0m
+[0m[ INFO] [1793248954.490485474]: Start device CC1N16200KR[0m
+[0m[ INFO] [1793248954.615376058]: set depth video mode Resolution :640x400@30Hz
+format PIXEL_FORMAT_DEPTH_1_MM[0m
+[0m[ INFO] [1793248954.714550065]: OBCameraNode::setupUVCCamera[0m
+[0m[ INFO] [1793248954.724551641]: open uvc camera[0m
+[0m[ INFO] [1793248954.726483840]: uvc config: vendor_id: 0
+product_id: 0
+width: 640
+height: 480
+fps: 30
+serial_number: CC1N16200KR
+format: mjpeg
+[0m
+[0m[ INFO] [1793248954.788698703]: open camera success[0m
+[0m[ INFO] [1793248954.788748104]: using default calibration URL[0m
+[0m[ INFO] [1793248954.788770157]: camera calibration URL: file:///home/jchen572/.ros/camera_info/rgb_camera.yaml[0m
+[0m[ INFO] [1793248954.788816338]: Unable to open camera calibration file [/home/jchen572/.ros/camera_info/rgb_camera.yaml][0m
+[0m[ INFO] [1793248954.802005691]: using default calibration URL[0m
+[0m[ INFO] [1793248954.802019385]: camera calibration URL: file:///home/jchen572/.ros/camera_info/ir_camera.yaml[0m
+[0m[ INFO] [1793248954.802029783]: Unable to open camera calibration file [/home/jchen572/.ros/camera_info/ir_camera.yaml][0m
+[0m[ INFO] [1793248954.802061376]: OBCameraNode initialized[0m
+[0m[ INFO] [1793248954.802070475]: Start device CC1N16200KR done[0m
+[0m[ INFO] [1793248954.802083603]: Device connected: (name, Astra) (uri, 2bc5/0657@1/14) (vendor, Orbbec)[0m
+[0m[ INFO] [1793248954.811982286]: UVCCameraDriver image subscribed[0m
+[0m[ INFO] [1793248954.813689204]: set uvc mode 640x480@30 format mjpeg[0m
+[0m[ INFO] [1793248955.442757699]: Trying to open device: 2bc5/0657@1/14[0m
+[0m[ INFO] [1793248955.542861292]: OBCameraNodeFactory::onDeviceConnected Open device start[0m
+[0m[ INFO] [1793248955.545046268]: OBCameraNodeFactory::onDeviceConnected Open device done, STATUS 4118[0m
+[0m[ INFO] [1793248955.545075394]: Device is already opened OR device is in use, may be it belong to other node[0m
+[0m[ INFO] [1793248961.127570300]: UVCCameraDriver image unsubscribed[0m
+[0m[ INFO] [1793248961.127600875]: stop uvc streaming[0m
+[0m[ INFO] [1793248953.200624884]: Starting camera node...[0m
+[0m[ INFO] [1793248953.206061515]: Creating camera node...[0m
+[0m[ INFO] [1793248953.206533788]: OBCameraNodeFactory::OBCameraNodeFactory[0m
+[0m[ INFO] [1793248953.206542836]: Initializing OBCameraNodeFactory...[0m
+[0m[ INFO] [1793248953.217962834]: init Done[0m
+[0m[ INFO] [1793248953.217973343]: Creating camera node done...[0m
+[0m[ INFO] [1793248953.217989256]: Query device[0m
+[0m[ INFO] [1793248953.218005187]: Found 3 devices[0m
+[0m[ INFO] [1793248953.318097544]: Device connected: (name, Astra) (uri, 2bc5/0657@1/17) (vendor, Orbbec)[0m
+[0m[ INFO] [1793248954.174718712]: Trying to open device: 2bc5/0657@1/17[0m
+[0m[ INFO] [1793248954.218052194]: wait for device CC1N16200KJ to be connected[0m
+[0m[ INFO] [1793248954.274810593]: OBCameraNodeFactory::onDeviceConnected Open device start[0m
+[0m[ INFO] [1793248954.331514992]: OBCameraNodeFactory::onDeviceConnected Open device done, STATUS 0[0m
+[0m[ INFO] [1793248954.331547021]: Device connected: Astra serial number: CC1N16200KR does not match expected serial number: CC1N16200KJ[0m
+[0m[ INFO] [1793248954.331558639]: Device: 2bc5/0657@1/17 is not connected[0m
+[0m[ INFO] [1793248954.333470049]: OBCameraNodeFactory::onDeviceConnected close done.[0m
+[0m[ INFO] [1793248954.333488177]: Device connected: (name, Astra) (uri, 2bc5/0657@1/14) (vendor, Orbbec)[0m
+[0m[ INFO] [1793248954.903442279]: Device is already opened OR device is in use, may be it belong to other node[0m
+[0m[ INFO] [1793248955.061883421]: Device connected: Astra serial number: CC1N16200KJ[0m
+[0m[ INFO] [1793248955.061919335]: Start device CC1N16200KJ[0m
+[0m[ INFO] [1793248955.193378091]: set depth video mode Resolution :640x400@30Hz
+format PIXEL_FORMAT_DEPTH_1_MM[0m
+[0m[ INFO] [1793248955.218020776]: wait for device CC1N16200KJ to be connected[0m
+[0m[ INFO] [1793248955.295136305]: OBCameraNode::setupUVCCamera[0m
+[0m[ INFO] [1793248955.311445719]: open uvc camera[0m
+[0m[ INFO] [1793248955.313863719]: UVCCameraDriver image subscribed[0m
+[0m[ INFO] [1793248955.382444112]: uvc config: vendor_id: 0
+product_id: 0
+width: 640
+height: 480
+fps: 30
+serial_number: CC1N16200KJ
+format: mjpeg
+[0m
+[0m[ INFO] [1793248955.424724784]: open camera success[0m
+[0m[ INFO] [1793248955.424763675]: using default calibration URL[0m
+[0m[ INFO] [1793248955.424780574]: camera calibration URL: file:///home/jchen572/.ros/camera_info/rgb_camera.yaml[0m
+[0m[ INFO] [1793248955.424812017]: Unable to open camera calibration file [/home/jchen572/.ros/camera_info/rgb_camera.yaml][0m
+[0m[ INFO] [1793248955.426594083]: set uvc mode 640x480@30 format mjpeg[0m
+[0m[ INFO] [1793248955.442660260]: using default calibration URL[0m
+[0m[ INFO] [1793248955.442674795]: camera calibration URL: file:///home/jchen572/.ros/camera_info/ir_camera.yaml[0m
+[0m[ INFO] [1793248955.442685925]: Unable to open camera calibration file [/home/jchen572/.ros/camera_info/ir_camera.yaml][0m
+[0m[ INFO] [1793248955.442721682]: OBCameraNode initialized[0m
+[0m[ INFO] [1793248955.442727694]: Start device CC1N16200KJ done[0m
+[0m[ INFO] [1793248961.127225957]: UVCCameraDriver image unsubscribed[0m
+[0m[ INFO] [1793248961.127251195]: stop uvc streaming[0m
+... logging to /home/jchen572/.ros/log/26110f0e-d353-11f1-a558-b9fcf1f86b39/roslaunch-agilex-16062.log
+Checking log directory for disk usage. This may take a while.
+Press Ctrl-C to interrupt
+Done checking log file disk usage. Usage is <1GB.
+]2;/home/jchen572/code_file/agilex_image_service/ros_ws/src/ros_astra_camera/launch/multi_camera.launch
+[1mstarted roslaunch server http://127.0.0.1:39489/[0m
+
+SUMMARY
+========
+
+PARAMETERS
+ * /camera_f/camera/camera_name: camera_f
+ * /camera_f/camera/color_depth_synchronization: False
+ * /camera_f/camera/color_format: RGB
+ * /camera_f/camera/color_fps: 30
+ * /camera_f/camera/color_height: 480
+ * /camera_f/camera/color_info_uri: 
+ * /camera_f/camera/color_roi_height: -1
+ * /camera_f/camera/color_roi_width: -1
+ * /camera_f/camera/color_roi_x: -1
+ * /camera_f/camera/color_roi_y: -1
+ * /camera_f/camera/color_width: 640
+ * /camera_f/camera/connection_delay: 100
+ * /camera_f/camera/depth_align: True
+ * /camera_f/camera/depth_format: Y11
+ * /camera_f/camera/depth_fps: 30
+ * /camera_f/camera/depth_height: 400
+ * /camera_f/camera/depth_roi_height: -1
+ * /camera_f/camera/depth_roi_width: -1
+ * /camera_f/camera/depth_roi_x: -1
+ * /camera_f/camera/depth_roi_y: -1
+ * /camera_f/camera/depth_scale: 1
+ * /camera_f/camera/depth_width: 640
+ * /camera_f/camera/device_num: 3
+ * /camera_f/camera/enable_color: True
+ * /camera_f/camera/enable_d2c_viewer: False
+ * /camera_f/camera/enable_depth: True
+ * /camera_f/camera/enable_ir: False
+ * /camera_f/camera/enable_point_cloud: True
+ * /camera_f/camera/enable_point_cloud_xyzrgb: False
+ * /camera_f/camera/enable_publish_extrinsic: False
+ * /camera_f/camera/flip_color: False
+ * /camera_f/camera/flip_depth: False
+ * /camera_f/camera/flip_ir: False
+ * /camera_f/camera/ir_format: Y10
+ * /camera_f/camera/ir_fps: 30
+ * /camera_f/camera/ir_height: 480
+ * /camera_f/camera/ir_info_uri: 
+ * /camera_f/camera/ir_width: 640
+ * /camera_f/camera/oni_log_level: verbose
+ * /camera_f/camera/oni_log_to_console: False
+ * /camera_f/camera/oni_log_to_file: False
+ * /camera_f/camera/product_id: 
+ * /camera_f/camera/publish_tf: True
+ * /camera_f/camera/serial_number: CC1N16200KJ
+ * /camera_f/camera/tf_publish_rate: 10.0
+ * /camera_f/camera/use_uvc_camera: True
+ * /camera_f/camera/uvc_camera_format: mjpeg
+ * /camera_f/camera/uvc_flip: False
+ * /camera_f/camera/uvc_product_id: 0x050e
+ * /camera_f/camera/uvc_retry_count: 100
+ * /camera_f/camera/uvc_vendor_id: 0x2bc5
+ * /camera_f/camera/vendor_id: 0x2bc5
+ * /camera_l/camera/camera_name: camera_l
+ * /camera_l/camera/color_depth_synchronization: False
+ * /camera_l/camera/color_format: RGB
+ * /camera_l/camera/color_fps: 30
+ * /camera_l/camera/color_height: 480
+ * /camera_l/camera/color_info_uri: 
+ * /camera_l/camera/color_roi_height: -1
+ * /camera_l/camera/color_roi_width: -1
+ * /camera_l/camera/color_roi_x: -1
+ * /camera_l/camera/color_roi_y: -1
+ * /camera_l/camera/color_width: 640
+ * /camera_l/camera/connection_delay: 100
+ * /camera_l/camera/depth_align: True
+ * /camera_l/camera/depth_format: Y11
+ * /camera_l/camera/depth_fps: 30
+ * /camera_l/camera/depth_height: 400
+ * /camera_l/camera/depth_roi_height: -1
+ * /camera_l/camera/depth_roi_width: -1
+ * /camera_l/camera/depth_roi_x: -1
+ * /camera_l/camera/depth_roi_y: -1
+ * /camera_l/camera/depth_scale: 1
+ * /camera_l/camera/depth_width: 640
+ * /camera_l/camera/device_num: 3
+ * /camera_l/camera/enable_color: True
+ * /camera_l/camera/enable_d2c_viewer: False
+ * /camera_l/camera/enable_depth: True
+ * /camera_l/camera/enable_ir: False
+ * /camera_l/camera/enable_point_cloud: True
+ * /camera_l/camera/enable_point_cloud_xyzrgb: False
+ * /camera_l/camera/enable_publish_extrinsic: False
+ * /camera_l/camera/flip_color: False
+ * /camera_l/camera/flip_depth: False
+ * /camera_l/camera/flip_ir: False
+ * /camera_l/camera/ir_format: Y10
+ * /camera_l/camera/ir_fps: 30
+ * /camera_l/camera/ir_height: 480
+ * /camera_l/camera/ir_info_uri: 
+ * /camera_l/camera/ir_width: 640
+ * /camera_l/camera/oni_log_level: verbose
+ * /camera_l/camera/oni_log_to_console: False
+ * /camera_l/camera/oni_log_to_file: False
+ * /camera_l/camera/product_id: 
+ * /camera_l/camera/publish_tf: True
+ * /camera_l/camera/serial_number: CC1N16200KR
+ * /camera_l/camera/tf_publish_rate: 10.0
+ * /camera_l/camera/use_uvc_camera: True
+ * /camera_l/camera/uvc_camera_format: mjpeg
+ * /camera_l/camera/uvc_flip: False
+ * /camera_l/camera/uvc_product_id: 0x050e
+ * /camera_l/camera/uvc_retry_count: 100
+ * /camera_l/camera/uvc_vendor_id: 0x2bc5
+ * /camera_l/camera/vendor_id: 0x2bc5
+ * /camera_r/camera/camera_name: camera_r
+ * /camera_r/camera/color_depth_synchronization: False
+ * /camera_r/camera/color_format: RGB
+ * /camera_r/camera/color_fps: 30
+ * /camera_r/camera/color_height: 480
+ * /camera_r/camera/color_info_uri: 
+ * /camera_r/camera/color_roi_height: -1
+ * /camera_r/camera/color_roi_width: -1
+ * /camera_r/camera/color_roi_x: -1
+ * /camera_r/camera/color_roi_y: -1
+ * /camera_r/camera/color_width: 640
+ * /camera_r/camera/connection_delay: 100
+ * /camera_r/camera/depth_align: True
+ * /camera_r/camera/depth_format: Y11
+ * /camera_r/camera/depth_fps: 30
+ * /camera_r/camera/depth_height: 400
+ * /camera_r/camera/depth_roi_height: -1
+ * /camera_r/camera/depth_roi_width: -1
+ * /camera_r/camera/depth_roi_x: -1
+ * /camera_r/camera/depth_roi_y: -1
+ * /camera_r/camera/depth_scale: 1
+ * /camera_r/camera/depth_width: 640
+ * /camera_r/camera/device_num: 3
+ * /camera_r/camera/enable_color: True
+ * /camera_r/camera/enable_d2c_viewer: False
+ * /camera_r/camera/enable_depth: True
+ * /camera_r/camera/enable_ir: False
+ * /camera_r/camera/enable_point_cloud: True
+ * /camera_r/camera/enable_point_cloud_xyzrgb: False
+ * /camera_r/camera/enable_publish_extrinsic: False
+ * /camera_r/camera/flip_color: False
+ * /camera_r/camera/flip_depth: False
+ * /camera_r/camera/flip_ir: False
+ * /camera_r/camera/ir_format: Y10
+ * /camera_r/camera/ir_fps: 30
+ * /camera_r/camera/ir_height: 480
+ * /camera_r/camera/ir_info_uri: 
+ * /camera_r/camera/ir_width: 640
+ * /camera_r/camera/oni_log_level: verbose
+ * /camera_r/camera/oni_log_to_console: False
+ * /camera_r/camera/oni_log_to_file: False
+ * /camera_r/camera/product_id: 
+ * /camera_r/camera/publish_tf: True
+ * /camera_r/camera/serial_number: CC1N16202T0
+ * /camera_r/camera/tf_publish_rate: 10.0
+ * /camera_r/camera/use_uvc_camera: True
+ * /camera_r/camera/uvc_camera_format: mjpeg
+ * /camera_r/camera/uvc_flip: False
+ * /camera_r/camera/uvc_product_id: 0x050e
+ * /camera_r/camera/uvc_retry_count: 100
+ * /camera_r/camera/uvc_vendor_id: 0x2bc5
+ * /camera_r/camera/vendor_id: 0x2bc5
+ * /rosdistro: noetic
+ * /rosversion: 1.16.0
+
+NODES
+  /camera_f/
+    camera (astra_camera/astra_camera_node)
+  /camera_l/
+    camera (astra_camera/astra_camera_node)
+  /camera_r/
+    camera (astra_camera/astra_camera_node)
+
+[1mROS_MASTER_URI=http://127.0.0.1:11311[0m
+]2;/home/jchen572/code_file/agilex_image_service/ros_ws/src/ros_astra_camera/launch/multi_camera.launch http://127.0.0.1:11311
+[1mprocess[camera_r/camera-1]: started with pid [16083][0m
+[1mprocess[camera_l/camera-2]: started with pid [16085][0m
+[1mprocess[camera_f/camera-3]: started with pid [16087][0m
+[camera_f/camera-3] killing on exit
+[camera_l/camera-2] killing on exit
+[camera_r/camera-1] killing on exit
+shutting down processing monitor...
+... shutting down processing monitor complete
+[1mdone[0m

@@ -1,0 +1,24 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/jchen572/code_file/cobot_magic/camera_ws/src/realsense-ros/realsense2_camera/include/list_device_camera_lib.hpp
+librealsense2/rs.hpp
+-
+iostream
+-
+fstream
+-
+boost/algorithm/string/classification.hpp
+-
+boost/algorithm/string/split.hpp
+-
+
+/home/jchen572/code_file/cobot_magic/camera_ws/src/realsense-ros/realsense2_camera/src/list_device_camera.cpp
+list_device_camera_lib.hpp
+-
+
