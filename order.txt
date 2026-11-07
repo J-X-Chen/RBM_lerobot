@@ -1317,3 +1317,98 @@ PI05/DM05误差微调已回退（2026-11-02）：
 日志改用aloha_pi05_live_execute_rollback.jsonl和aloha_dm05_live_execute_rollback.jsonl，保留基线及tune1日志用于对比。
 停止评估后，在机器人端使用更新后的21.0命令重启服务；仅重启工作站评估不能撤销服务端正在使用的0.12秒参数。
 本次仅回退微调，不代表已解决碰杯、夹爪闭合/抬臂协调或受阻持续施力问题。
+
+23. ALOHA PI0.5 / DM0.5 mask checkpoint 实时评估（共用21.0发送端）
+
+23.1 checkpoint：pi05_aloha_red_cup_14d_mask/checkpoints/015000/pretrained_model。
+23.2 checkpoint：dm05_aloha_red_cup_14d_mask/checkpoints/030000/pretrained_model。
+评估环境需要同时具备PI05/DM05依赖和mask依赖：mujoco>=3.17、opencv-python、scipy、pyarrow、av。
+当前s1_lerobot环境尚缺mujoco，运行前安装：python -m pip install 'mujoco>=3.17'
+标定与机器人模型从/home/jchen572/code_file/cloak读取，mask代码使用本仓库mask_operation。
+使用原始RGB数据集；每次推理根据当前14D反馈在线渲染并填充RGB，不读取历史帧mask。
+
+23.1 工作站 PI0.5 mask 实机执行（不要与23.2同时运行）
+
+cd /home/jchen572/code_file/RBM_lerobot
+conda activate s1_lerobot
+export MUJOCO_GL=egl
+CUDA_VISIBLE_DEVICES=1 python agilex-lerobot/eval_robot/eval_aloha.py \
+    --policy.path=./lerobot/outputs/pi05_aloha_red_cup_14d_mask/checkpoints/015000/pretrained_model \
+    --robot-mask \
+    --mask-fill-rgb 0 255 0 \
+    --mask-assets-root=/home/jchen572/code_file/cloak \
+    --mask-config=/home/jchen572/code_file/cloak/artifacts/aloha_mask/wrist_right5mm_up7p5mm_run1/calibration.json \
+    --allow-candidate-mask \
+    --n-action-steps=50 \
+    --async-prefetch \
+    --adaptive-tracking \
+    --prefetch-steps=10 \
+    --async-timeout=2 \
+    --dataset-root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/aloha_cup_selection_red \
+    --task="Select the red cup and place it on the black coaster." \
+    --mode=live \
+    --active-arm=both \
+    --frequency=10 \
+    --image-server-address=192.168.0.102 \
+    --head-camera-port=6100 \
+    --left-camera-port=6101 \
+    --right-camera-port=6102 \
+    --robot-host=192.168.0.102 \
+    --robot-port=6200 \
+    --joint-speed=0.45 \
+    --gripper-speed=0.04 \
+    --camera-timeout=2 \
+    --command-timeout=5 \
+    --policy-warmup-steps=5 \
+    --episode=0 \
+    --return-joint-speed=0.15 \
+    --return-gripper-speed=0.01 \
+    --return-timeout=60 \
+    --execute \
+    --log=./eval_action_logs/aloha_pi05_mask_live_execute.jsonl
+
+23.2 工作站 DM0.5 mask 实机执行（先退出23.1，不要同时运行其他评估）
+
+cd /home/jchen572/code_file/RBM_lerobot
+conda activate s1_lerobot
+export MUJOCO_GL=egl
+CUDA_VISIBLE_DEVICES=1 python agilex-lerobot/eval_robot/eval_aloha.py \
+    --policy.path=./lerobot/outputs/dm05_aloha_red_cup_14d_mask/checkpoints/030000/pretrained_model \
+    --robot-mask \
+    --mask-fill-rgb 0 255 0 \
+    --mask-assets-root=/home/jchen572/code_file/cloak \
+    --mask-config=/home/jchen572/code_file/cloak/artifacts/aloha_mask/wrist_right5mm_up7p5mm_run1/calibration.json \
+    --allow-candidate-mask \
+    --n-action-steps=50 \
+    --async-prefetch \
+    --adaptive-tracking \
+    --prefetch-steps=10 \
+    --async-timeout=2 \
+    --dataset-root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/aloha_cup_selection_red \
+    --task="Select the red cup and place it on the black coaster." \
+    --mode=live \
+    --active-arm=both \
+    --frequency=10 \
+    --image-server-address=192.168.0.102 \
+    --head-camera-port=6100 \
+    --left-camera-port=6101 \
+    --right-camera-port=6102 \
+    --robot-host=192.168.0.102 \
+    --robot-port=6200 \
+    --joint-speed=0.45 \
+    --gripper-speed=0.04 \
+    --camera-timeout=2 \
+    --command-timeout=5 \
+    --policy-warmup-steps=5 \
+    --episode=0 \
+    --return-joint-speed=0.15 \
+    --return-gripper-speed=0.01 \
+    --return-timeout=60 \
+    --execute \
+    --log=./eval_action_logs/aloha_dm05_mask_live_execute.jsonl
+
+mask-fill-rgb按R G B顺序填写，范围0~255；默认绿色0 255 0，应与训练数据填色一致。
+allow-candidate-mask显式允许使用cloak现有候选标定；相机安装、裁剪和分辨率必须匹配标定。
+23.1和23.2均包含--execute，会下发实机动作；r对齐、s开始、q/Ctrl+C退出回位流程与22节相同。
+只有一张GPU时，将CUDA_VISIBLE_DEVICES=1改成0。
+本次已验证ALOHA/S1渲染及相关测试；当前运行环境无可用CUDA，尚未完成该checkpoint的完整推理或实机验证。

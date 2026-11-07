@@ -213,6 +213,11 @@ def setup_robot_interface(args: argparse.Namespace) -> dict[str, Any]:
     if args.arm not in ARM_CONFIG:
         raise ValueError(f"Unknown arm '{args.arm}'. Available: {list(ARM_CONFIG.keys())}")
 
+    mask = None
+    if getattr(args, "robot_mask", False):
+        from mask_operation.src.cloak_mask.runtime import RobotMask
+        mask = RobotMask("s1", assets_root=args.mask_assets_root, fill_rgb=args.mask_fill_rgb,
+                         allow_candidate=args.allow_candidate_mask)
     arm_spec = ARM_CONFIG[args.arm]
     is_sim = getattr(args, "sim", False)
     if is_sim:
@@ -261,6 +266,7 @@ def setup_robot_interface(args: argparse.Namespace) -> dict[str, Any]:
             f"{astribot_control_transport!r}. Use 'local' or 'remote'."
         )
 
+    arm_ctrl.robot_mask = mask
     ee_ctrl, ee_shared_mem, ee_dof = None, {}, 0
     if ee_key := getattr(args, "ee", "").lower():
         if astribot_control_transport in {"remote", "tcp", "s1", "s1_bridge"}:
@@ -349,6 +355,8 @@ def process_images_and_observations(
         observation["observation.images.right"] = observation["observation.images.cam_right_wrist"]
 
     current_arm_q = arm_ctrl.get_current_dual_arm_q()
+    if getattr(arm_ctrl, "robot_mask", None) is not None:
+        observation = arm_ctrl.robot_mask.apply(observation, current_arm_q, layout="HWC")
     return observation, current_arm_q
 
 

@@ -60,6 +60,8 @@ class AlohaPolicy:
         state = np.asarray(observation["observation.state"], dtype=np.float32)
         if state.shape != (14,) or not np.isfinite(state).all():
             raise ValueError("Invalid state")
+        if getattr(self, "robot_mask", None) is not None:
+            observation = self.robot_mask.apply(observation, state, layout="CHW")
         batch = {"observation.state": torch.from_numpy(state), "task": task}
         for key in CAMERAS:
             image = torch.as_tensor(observation[key])

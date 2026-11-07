@@ -1,4 +1,4 @@
-﻿"""'
+"""'
 Refer to:   lerobot/lerobot/scripts/eval.py
             lerobot/lerobot/scripts/econtrol_robot.py
             lerobot/robot_devices/control_utils.py
@@ -1874,6 +1874,8 @@ def eval_policy(
             logger_mp.info(f"Action log saved to {action_log_path}")
             action_log_file.close()
         key_listener.stop()
+        if arm_ctrl is not None and getattr(arm_ctrl, "robot_mask", None) is not None:
+            arm_ctrl.robot_mask.close()
         if image_info:
             cleanup_resources(image_info)
 
@@ -1962,5 +1964,11 @@ def eval_main(cfg: EvalRealAsyncConfig):
 
 
 if __name__ == "__main__":
+    for i, arg in enumerate(sys.argv):
+        for flag in ("robot-mask", "mask-fill-rgb", "mask-assets-root", "allow-candidate-mask"):
+            if arg == "--" + flag or arg.startswith("--" + flag + "="):
+                sys.argv[i] = arg.replace("--" + flag, "--" + flag.replace("-", "_"), 1)
+                if sys.argv[i] in ("--robot_mask", "--allow_candidate_mask"):
+                    sys.argv[i] += "=true"
     init_logging()
     eval_main()

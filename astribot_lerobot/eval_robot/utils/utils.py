@@ -1,4 +1,5 @@
-﻿import numpy as np
+from pathlib import Path
+import numpy as np
 import torch
 from typing import Any
 from contextlib import nullcontext
@@ -313,6 +314,10 @@ def to_scalar(x):
 class EvalRealConfig:
     repo_id: str
     policy: PreTrainedConfig | None = None
+    robot_mask: bool = False
+    mask_fill_rgb: list[int] = field(default_factory=lambda: [0, 255, 0])
+    mask_assets_root: str = str(Path.home() / "code_file/cloak")
+    allow_candidate_mask: bool = False
     astribot_rtc: bool = False  # PI05 synchronous RTC prefix guidance; no async worker.
     astribot_prepare_arms_only: bool = False  # r/b align 16D arms+grippers; preserve current body/head.
 

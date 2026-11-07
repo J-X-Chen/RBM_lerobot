@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-for path in (ROOT / "piper_sdk", ROOT / "lerobot" / "src"):
+for path in (ROOT / "mask_operation/src", ROOT / "piper_sdk", ROOT / "lerobot" / "src"):
     sys.path.insert(0, str(path))
 
 import numpy as np
@@ -328,6 +328,11 @@ def main(argv=None):
     parser.add_argument("--return-gripper-speed", type=float, default=0.01)
     parser.add_argument("--return-timeout", type=float, default=60.0)
     parser.add_argument("--log", type=Path, default=Path("eval_action_logs/aloha.jsonl"))
+    parser.add_argument("--robot-mask", action="store_true", help="Render robot silhouette from measured state and fill RGB")
+    parser.add_argument("--mask-fill-rgb", type=int, nargs=3, default=[0, 255, 0], metavar=("R", "G", "B"))
+    parser.add_argument("--mask-assets-root", type=Path, default=Path.home()/"code_file/cloak")
+    parser.add_argument("--mask-config", type=Path)
+    parser.add_argument("--allow-candidate-mask", action="store_true")
     args = parser.parse_args(argv)
     if (args.steps is not None and args.steps <= 0) or not np.isfinite(args.frequency) or args.frequency < 1 or args.episode < 0:
         parser.error("steps/frequency must be positive (frequency >=1); episode must be nonnegative")
@@ -353,7 +358,11 @@ def main(argv=None):
     if args.mode == "dataset" and args.execute:
         parser.error("Dataset observations must never be used to control real hardware")
     args.log.parent.mkdir(parents=True, exist_ok=True)
+    from cloak_mask.runtime import RobotMask
+    mask = RobotMask("aloha", assets_root=args.mask_assets_root, config=args.mask_config,
+        fill_rgb=args.mask_fill_rgb, allow_candidate=args.allow_candidate_mask) if args.robot_mask else None
     runner = AlohaPolicy(args.checkpoint, args.device, args.n_action_steps)
+    runner.robot_mask = mask
     # Keep the effective CLI and checkpoint contract beside action logs, like the S1 evaluator.
     metadata = {
         "command": shlex.join([sys.executable, sys.argv[0], *(sys.argv[1:] if argv is None else argv)]),
@@ -365,10 +374,14 @@ def main(argv=None):
         "n_action_steps": runner.n_action_steps,
     }
     args.log.with_suffix(".run.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n")
-    if args.mode == "dataset":
-        offline(args, runner)
-    else:
-        live(args, runner)
+    try:
+        if args.mode == "dataset":
+            offline(args, runner)
+        else:
+            live(args, runner)
+    finally:
+        if mask is not None:
+            mask.close()
 
 
 if __name__ == "__main__":
