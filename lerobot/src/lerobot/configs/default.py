@@ -84,10 +84,14 @@ class DatasetConfig:
     astribot_action_view: str | None = None
     # Legacy alias for astribot_action_view. Kept so old commands keep working.
     compress_astribot_actions: bool | str = False
+    # Zerith: remove constant action columns except the left gripper; retain 23D state.
+    zerith_action_view: str = "full"
     # Fraction of episodes held out per task for offline evaluation (0.0 = disabled).
     eval_split: float = 0.0
 
     def __post_init__(self) -> None:
+        if self.zerith_action_view not in {"full", "auto"}:
+            raise ValueError("zerith_action_view must be full or auto")
         if self.repo_type not in ("dataset", "bucket"):
             raise ValueError(f"repo_type must be 'dataset' or 'bucket', got {self.repo_type!r}")
         if self.eval_split != 0.0 and self.streaming:

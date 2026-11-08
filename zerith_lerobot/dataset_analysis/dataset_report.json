@@ -1,0 +1,218 @@
+{
+  "dataset": "/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/task_003_red_300ml_coca_cola_into_basket_full23",
+  "frames": 34592,
+  "episodes": 35,
+  "fps": 30,
+  "state_dim": 23,
+  "action_dim": 19,
+  "urdf_limit_violations": [],
+  "dimensions": [
+    {
+      "index": 0,
+      "name": "left_arm_1",
+      "action_min": -0.39605918526649475,
+      "action_max": 0.1158241257071495,
+      "state_min": -0.3912029266357422,
+      "state_max": 0.11387062072753906,
+      "retained": true
+    },
+    {
+      "index": 1,
+      "name": "left_arm_2",
+      "action_min": 0.1284594088792801,
+      "action_max": 0.4031224548816681,
+      "state_min": 0.12874794006347656,
+      "state_max": 0.3931102752685547,
+      "retained": true
+    },
+    {
+      "index": 2,
+      "name": "left_arm_3",
+      "action_min": -0.50255286693573,
+      "action_max": -0.0766744315624237,
+      "state_min": -0.4957275390625,
+      "state_max": -0.09021854400634766,
+      "retained": true
+    },
+    {
+      "index": 3,
+      "name": "left_arm_4",
+      "action_min": -0.34955689311027527,
+      "action_max": 0.0005595840630121529,
+      "state_min": -0.3328371047973633,
+      "state_max": 0.00057220458984375,
+      "retained": true
+    },
+    {
+      "index": 4,
+      "name": "left_arm_5",
+      "action_min": -0.4261075556278229,
+      "action_max": -0.15003927052021027,
+      "state_min": -0.4213399887084961,
+      "state_max": -0.15774059295654297,
+      "retained": true
+    },
+    {
+      "index": 5,
+      "name": "left_arm_6",
+      "action_min": -0.20427390933036804,
+      "action_max": 0.24249961972236633,
+      "state_min": -0.19741344451904297,
+      "state_max": 0.23708724975585938,
+      "retained": true
+    },
+    {
+      "index": 6,
+      "name": "left_arm_7",
+      "action_min": -0.3084106147289276,
+      "action_max": 0.012469693087041378,
+      "state_min": -0.3015565872192383,
+      "state_max": 0.01544952392578125,
+      "retained": true
+    },
+    {
+      "index": 7,
+      "name": "left_gripper",
+      "action_min": 0.0,
+      "action_max": 0.0,
+      "state_min": -0.00019073486328125,
+      "state_max": 0.00019073486328125,
+      "retained": true
+    },
+    {
+      "index": 8,
+      "name": "right_arm_1",
+      "action_min": -0.8744146227836609,
+      "action_max": 0.11990838497877121,
+      "state_min": -0.8611812591552734,
+      "state_max": 0.12035560607910156,
+      "retained": true
+    },
+    {
+      "index": 9,
+      "name": "right_arm_2",
+      "action_min": -0.5403023362159729,
+      "action_max": -0.07662227004766464,
+      "state_min": -0.5384531021118164,
+      "state_max": -0.08220767974853516,
+      "retained": true
+    },
+    {
+      "index": 10,
+      "name": "right_arm_3",
+      "action_min": -0.485247939825058,
+      "action_max": 0.21522365510463715,
+      "state_min": -0.4808502197265625,
+      "state_max": 0.21114635467529297,
+      "retained": true
+    },
+    {
+      "index": 11,
+      "name": "right_arm_4",
+      "action_min": -0.35510140657424927,
+      "action_max": 0.5473120212554932,
+      "state_min": -0.3374147415161133,
+      "state_max": 0.5434122085571289,
+      "retained": true
+    },
+    {
+      "index": 12,
+      "name": "right_arm_5",
+      "action_min": -0.07100353389978409,
+      "action_max": 0.3869963586330414,
+      "state_min": -0.06427860260009766,
+      "state_max": 0.3858623504638672,
+      "retained": true
+    },
+    {
+      "index": 13,
+      "name": "right_arm_6",
+      "action_min": -0.4235467314720154,
+      "action_max": 0.1725711226463318,
+      "state_min": -0.4190511703491211,
+      "state_max": 0.17071056365966797,
+      "retained": true
+    },
+    {
+      "index": 14,
+      "name": "right_arm_7",
+      "action_min": -0.221251979470253,
+      "action_max": 0.2769652009010315,
+      "state_min": -0.21343517303466797,
+      "state_max": 0.2981233596801758,
+      "retained": true
+    },
+    {
+      "index": 15,
+      "name": "right_gripper",
+      "action_min": 0.0,
+      "action_max": 1.5,
+      "state_min": 0.02155303955078125,
+      "state_max": 1.2983522415161133,
+      "retained": true
+    },
+    {
+      "index": 16,
+      "name": "waist_lift",
+      "action_min": 0.6397830247879028,
+      "action_max": 0.755058228969574,
+      "state_min": 0.6394862532615662,
+      "state_max": 0.755280077457428,
+      "retained": true
+    },
+    {
+      "index": 17,
+      "name": "waist_pitch",
+      "action_min": 0.2208874374628067,
+      "action_max": 0.4454430937767029,
+      "state_min": 0.22090530395507812,
+      "state_max": 0.4455134868621826,
+      "retained": true
+    },
+    {
+      "index": 18,
+      "name": "waist_yaw",
+      "action_min": -0.10575837641954422,
+      "action_max": 0.3443755507469177,
+      "state_min": -0.10585665702819824,
+      "state_max": 0.3443787097930908,
+      "retained": true
+    },
+    {
+      "index": 19,
+      "name": "head_yaw",
+      "action_min": 0.0,
+      "action_max": 0.0,
+      "state_min": -0.02498626708984375,
+      "state_max": -0.02422332763671875,
+      "retained": false
+    },
+    {
+      "index": 20,
+      "name": "head_pitch",
+      "action_min": 0.0,
+      "action_max": 0.0,
+      "state_min": 0.050927162170410156,
+      "state_max": 0.062371253967285156,
+      "retained": false
+    },
+    {
+      "index": 21,
+      "name": "base_linear_speed",
+      "action_min": 0.0,
+      "action_max": 0.0,
+      "state_min": -0.10584628582000732,
+      "state_max": 0.17487646639347076,
+      "retained": false
+    },
+    {
+      "index": 22,
+      "name": "base_angular_speed",
+      "action_min": 0.0,
+      "action_max": 0.0,
+      "state_min": -0.06864668428897858,
+      "state_max": 0.16797344386577606,
+      "retained": false
+    }
+  ]
+}

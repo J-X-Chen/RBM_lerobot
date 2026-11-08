@@ -98,6 +98,7 @@ from lerobot.policies.factory import ProcessorConfigKwargs
 from lerobot.processor import ImageAugmentationProcessorStep
 from lerobot.processor.rename_processor import rename_batch_keys, rename_stats
 from lerobot.rewards import make_reward_pre_post_processors
+from lerobot.utils.zerith_action import ZerithActionLayout, prepare_zerith_datasets
 from lerobot.utils.astribot_action import (
     ASTRIBOT_S1_ACTION_VIEW_ARM_GRIPPER,
     ASTRIBOT_S1_ACTION_VIEW_AUTO,
@@ -653,6 +654,25 @@ def apply_robot_dataset_views(
     Shared by every policy, including DM05; both training and held-out data must
     expose the same feature dimensions and transformed statistics.
     """
+    if cfg.dataset.zerith_action_view == "auto":
+        if (
+            cfg.dataset.streaming
+            or cfg.dataset.astribot_action_view != "full"
+            or cfg.dataset.compress_dex3_actions not in (False, "auto")
+        ):
+            raise ValueError("Zerith auto view requires non-streaming data and disables other embodiment filters")
+        if getattr(cfg.policy, "use_relative_actions", False):
+            raise ValueError("Zerith compressed actions require use_relative_actions=false (23D state / reduced action)")
+        layout = None
+        if cfg.resume:
+            if cfg.checkpoint_path is None:
+                raise ValueError("Resuming Zerith requires a checkpoint path")
+            layout = ZerithActionLayout.load(cfg.checkpoint_path / PRETRAINED_MODEL_DIR / "zerith_action_layout.json")
+        dataset, eval_dataset, layout = prepare_zerith_datasets(dataset, eval_dataset, layout)
+        if log_skip:
+            logging.info("Zerith: 23D state, %sD action, indices=%s", len(layout.indices), layout.indices)
+        return dataset, eval_dataset
+
     if is_cobot_magic(dataset):
         if cfg.dataset.streaming:
             raise NotImplementedError("Cobot Magic exact training statistics require dataset.streaming=false.")
@@ -762,6 +782,10 @@ def train(cfg: TrainPipelineConfig) -> None:
         dataset, eval_dataset = make_train_eval_datasets(cfg)
 
     dataset, eval_dataset = apply_robot_dataset_views(cfg, dataset, eval_dataset, log_skip=is_main_process())
+
+    zerith_layout = dataset.layout if cfg.dataset.zerith_action_view == "auto" else None
+    if zerith_layout is not None and is_main_process():
+        zerith_layout.save(cfg.output_dir / "zerith_action_layout.json")
 
     # --- policy (weight source decided by the resume rule) -------------------------------------
     # On resume, cfg was parsed FROM the checkpoint's train_config.json, so cfg.checkpoint_format
@@ -1193,6 +1217,10 @@ def train(cfg: TrainPipelineConfig) -> None:
                         cfg.save_pretrained(ema_dir)
                         preprocessor.save_pretrained(ema_dir)
                         postprocessor.save_pretrained(ema_dir)
+                if zerith_layout is not None:
+                    zerith_layout.save(checkpoint_dir / PRETRAINED_MODEL_DIR / "zerith_action_layout.json")
+                    if ema is not None:
+                        zerith_layout.save(ema_dir / "zerith_action_layout.json")
                 update_last_checkpoint(checkpoint_dir)
                 if cfg.save_checkpoint_to_hub:
                     if cfg.policy is None or not cfg.policy.repo_id:
