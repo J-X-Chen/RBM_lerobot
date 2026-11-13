@@ -3,6 +3,5 @@ numpy>=1.26,<2.3
 pyzmq>=25
 opencv-python>=4.10,<4.12
 aiortc==1.13.0
-av==14.4.0
 grpcio==1.74.0
 protobuf==6.33.2

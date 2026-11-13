@@ -3,9 +3,62 @@ import importlib
 from pathlib import Path
 import platform
 import sys
+import time
 
 import numpy as np
 from .contract import MOTORS, vector
+
+
+def acquire_low_level(adapter, log=print):
+    """Return once adapter.ready() is true; may deinit/init, which briefly releases arm support.
+
+    The native state machine refuses switchControlMode(LOW_LEVEL) while Init_Complete, and only
+    accepts Uninit / Deinit_Complete / Error_State, so the deinit step is mandatory once a previous
+    session left the robot initialized but in the default UNINITIALIZED control mode.
+    """
+    sdk, robot = adapter.sdk, adapter.robot
+    if adapter.ready():
+        log('SDK session already ready (LOW_LEVEL + Init_Complete).')
+        return adapter
+    log(f'Acquiring LOW_LEVEL: mode={robot.getCurrentMode()} init={robot.getInitState()}')
+    switched = False
+    if robot.getInitState() == sdk.InitState.Init_Complete:
+        log('robot_deinit() to leave Init_Complete; arms may briefly lose support.')
+        if robot.robot_deinit():
+            deadline = time.monotonic() + 25
+            while robot.getInitState() != sdk.InitState.Deinit_Complete:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError('robot_deinit state timeout')
+                time.sleep(.1)
+        elif robot.switchControlMode(sdk.MotorControlMode.LOW_LEVEL):
+            # The reported init state can be stale after the vendor control released the robot;
+            # a switch needs Uninit/Deinit_Complete, so accept it if the robot allows it.
+            switched = True
+        else:
+            raise RuntimeError(
+                'Vendor state machine deadlocked: robot_deinit refused (control mode is '
+                'UNINITIALIZED) and switchControlMode refused (init state is Init_Complete). '
+                'Restart the vendor stack on the H1 (sudo systemctl restart robotd), wait for the '
+                'camera service to come back, then start this service again.')
+    if not switched and not robot.switchControlMode(sdk.MotorControlMode.LOW_LEVEL):
+        raise RuntimeError('switchControlMode(LOW_LEVEL) refused')
+    deadline = time.monotonic() + 5
+    while robot.getCurrentMode() != sdk.MotorControlMode.LOW_LEVEL:
+        if time.monotonic() >= deadline:
+            raise TimeoutError('LOW_LEVEL transition timeout')
+        time.sleep(.05)
+    if adapter.ready():
+        log('LOW_LEVEL acquired; robot was already initialized.')
+        return adapter
+    if not robot.robot_init():
+        raise RuntimeError('robot_init failed')
+    deadline = time.monotonic() + 30
+    while not adapter.ready():
+        if time.monotonic() >= deadline:
+            raise TimeoutError('H1 initialization timeout')
+        time.sleep(.1)
+    log('LOW_LEVEL acquired and initialized.')
+    return adapter
 
 
 def load_sdk(root):

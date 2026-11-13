@@ -11,7 +11,7 @@ import uuid
 from .cameras import CameraPublisher, connect_cameras
 from .contract import PROTOCOL, default_urdf, limits_from_urdf, recv_json, send_json
 from .control import H1Control
-from .sdk import H1SDK, MockSDK
+from .sdk import H1SDK, MockSDK, acquire_low_level
 
 
 class ActionHandler(socketserver.BaseRequestHandler):
@@ -60,6 +60,8 @@ def build_parser():
     p.add_argument('--no-cameras', action='store_true')
     p.add_argument('--mock', action='store_true')
     p.add_argument('--execute-control', action='store_true')
+    p.add_argument('--acquire-control', action='store_true',
+                   help='Deinit/switch/init into LOW_LEVEL at startup; arms may briefly lose support')
     p.add_argument('--control-frequency', type=float, default=100.)
     p.add_argument('--control-timeout', type=float, default=.5)
     p.add_argument('--joint-velocity', type=float, default=.15)
@@ -79,9 +81,21 @@ def main():
     try:
         if args.list_cameras:
             camera = connect_cameras(args.sdk_root, args.camera_target)
-            print('\n'.join(c.camera_name for c in camera.get_state().camera_configs))
+            configs = camera.get_state().camera_configs
+            # Zero cameras means the vendor camera service has no sources attached; never exit
+            # silently with an empty list, because that masks a camera-mode misconfiguration.
+            if not configs:
+                raise SystemExit(
+                    f'No cameras reported by {args.camera_target}: check that the native '
+                    'camera mode is teleop (/etc/robot/cams_realsense.yaml without "D" serials)'
+                )
+            print('\n'.join(c.camera_name for c in configs))
             return
         sdk = MockSDK() if args.mock else H1SDK.connect(args.sdk_root, args.robot_host)
+        if args.acquire_control:
+            if args.mock or not args.execute_control:
+                raise ValueError('--acquire-control requires real hardware and --execute-control')
+            acquire_low_level(sdk)
         control = H1Control(sdk, limits_from_urdf(args.urdf or default_urdf(args.sdk_root)),
                             execute=args.execute_control, frequency=args.control_frequency,
                             timeout=args.control_timeout, joint_velocity=args.joint_velocity,

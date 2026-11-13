@@ -541,8 +541,8 @@ CUDA_VISIBLE_DEVICES=0 python -m lerobot.scripts.lerobot_train \
     --output_dir=/home/jchen572/code_file/RBM_lerobot/lerobot/outputs/pi05_s1_red_cup_16d_normfix \
     --job_name=pi05_s1_red_cup_16d_normfix \
     --batch_size=16 \
-    --steps=25000 \
-    --save_freq=25000 \
+    --steps=30000 \
+    --save_freq=30000 \
     --wandb.enable=false
 
 15.2 DM0.5：从 dm05_base 重新微调
@@ -569,8 +569,8 @@ CUDA_VISIBLE_DEVICES=1 python -m lerobot.scripts.lerobot_train \
     --output_dir=/home/jchen572/code_file/RBM_lerobot/lerobot/outputs/dm05_s1_red_cup_16d_normfix \
     --job_name=dm05_s1_red_cup_16d_normfix \
     --batch_size=8 \
-    --steps=25000 \
-    --save_freq=25000 \
+    --steps=30000 \
+    --save_freq=30000 \
     --wandb.enable=false
 
 15.3 训练完成后审计新 checkpoint，确认训练实际保存了修复后的统计
@@ -1204,7 +1204,7 @@ CUDA_VISIBLE_DEVICES=0 python agilex-lerobot/eval_robot/eval_aloha.py \
     --task="Select the red cup and place it on the black coaster." \
     --mode=live \
     --active-arm=both \
-    --frequency=15 \
+    --frequency=20 \
     --image-server-address=192.168.0.102 \
     --head-camera-port=6100 \
     --left-camera-port=6101 \

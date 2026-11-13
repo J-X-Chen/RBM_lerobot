@@ -1,0 +1,5 @@
+Looking in indexes: https://pypi.mirrors.ustc.edu.cn/simple/
+Collecting pyzmq
+  Using cached pyzmq-27.3.0-cp310-cp310-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl (874 kB)
+Installing collected packages: pyzmq
+Successfully installed pyzmq-27.3.0

@@ -25,6 +25,8 @@ class ZerithH1Controller:
         return self.client.request(heartbeat=True)
 
     def action(self, action):
+        # Raw policy output goes to the service unchanged; the service clamps to the joint limit
+        # and reports the excess in control.clamp_excess, so robustness runs are never aborted.
         return self.client.request(action=vector(action, 19).tolist())
 
     def hold(self):
@@ -33,6 +35,11 @@ class ZerithH1Controller:
     def close(self):
         try:
             if self.armed:
-                self.client.request(disarm=True)
+                try:
+                    # Graceful hand-back: the service keeps the hold but stays usable for the next
+                    # evaluation run. Older services without 'release' fall back to 'disarm'.
+                    self.client.request(release=True)
+                except RuntimeError:
+                    self.client.request(disarm=True)
         finally:
             self.client.close()

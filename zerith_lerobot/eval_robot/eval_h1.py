@@ -125,6 +125,10 @@ def main():
                     log_line(log, mode='preview', state=q.tolist(), action=actions.tolist(), control=status)
                     print(f'Read-only preview: {actions.shape}; first target={actions[0].round(4)}')
                 return
+            # Warm the SUB sockets once: before the first read the subscriber has no frames and
+            # the 30 Hz loop would otherwise time out on its very first iteration.
+            _, warm_status = controller.state()
+            cameras.read(timeout=2., server_time=warm_status["server_time"])
             session = EvaluationState(start_obs['observation.state'].numpy())
             pending = None
             queue = deque()
@@ -187,7 +191,9 @@ def main():
                             log_line(log, event='inference', action=actions.tolist(), overlap=overlap, latency=now-started)
                 if session.phase == 'running':
                     # Even while using a cached chunk, stale images stop the run.
-                    frames = cameras.read(timeout=.05, server_time=status["server_time"])
+                    # 50 ms was too tight for a freshly joined ZMQ subscriber; the freshness and
+                    # arrival-skew checks below still reject stale streams.
+                    frames = cameras.read(timeout=.2, server_time=status["server_time"])
                     need = not queue or (args.async_prefetch and len(queue) <= args.prefetch_steps)
                     if pending is None and need:
                         obs = live_observation(q, frames, task)

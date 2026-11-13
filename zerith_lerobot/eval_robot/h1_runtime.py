@@ -17,6 +17,11 @@ class H1Policy:
         cfg = PreTrainedConfig.from_pretrained(checkpoint)
         cfg.device = device
         cfg.compile_model = False
+        # Training saved the PaliGemma tokenizer next to the weights. Prefer that copy so
+        # evaluation never depends on a Hugging Face Hub lookup (the workstation is offline).
+        tokenizer_dir = checkpoint / 'tokenizer'
+        if hasattr(cfg, 'text_tokenizer_name') and (tokenizer_dir / 'tokenizer.json').is_file():
+            cfg.text_tokenizer_name = str(tokenizer_dir)
         for name in ('gradient_checkpointing', 'vlm_gradient_checkpointing', 'ae_gradient_checkpointing'):
             if hasattr(cfg, name):
                 setattr(cfg, name, False)
