@@ -1,0 +1,321 @@
+# SLA (Spatial-Language-Action, pi0.5 + 3D 空间对齐) 训练与评估命令
+
+SLA = pi0.5 + 训练期空间对齐损失：PaliGemma 第12层图像 token 经投影器与冻结 OmniVGGT 特征做余弦对齐，
+loss = action_loss + 0.5 * align_loss，并在训练时以 0.25 概率去掉 prompt 中的离散 state。
+推理与 pi0.5 完全相同，OmniVGGT 只在训练时加载，不会保存进 checkpoint。
+代码：lerobot/src/lerobot/policies/sla/（说明见其中 README.md），测试：lerobot/tests/policies/sla/。
+
+数据集（cobot_magic / ALOHA，三相机 head/left/right，14维 state/action）：
+repo_id: local/aloha_cup_selection_right
+root: /home/jchen572/code_file/RBM_lerobot_SLA/lerobotv3_datasets/aloha_cup_selection_right
+task: Select the red cup and place it on the black coaster
+
+
+0. 训练环境（已在 sla_lerobot 中配置完成，以下仅供检查/重建）
+
+cd /home/jchen572/code_file/RBM_lerobot_SLA
+conda activate sla_lerobot
+python -m pip install --no-deps --no-build-isolation -e ./lerobot
+python -m pip install "jax[cpu]" orbax-checkpoint "diffusers>=0.38.0,<0.40.0" "fsspec==2026.2.0" pytest
+python -c 'import lerobot, torch; print(lerobot.__file__); print("CUDA:", torch.cuda.is_available())'
+
+lerobot.__file__ 必须指向 /home/jchen572/code_file/RBM_lerobot_SLA/lerobot/src/lerobot/__init__.py。
+jax/orbax 只用于第2步把官方 JAX 权重转换为 PyTorch；diffusers 用于 --ema.enable。
+fsspec 固定 2026.2.0 以兼容 datasets。
+
+
+1. 下载权重（已下载到 base_models/，该目录已被 .gitignore 忽略）
+
+cd /home/jchen572/code_file/RBM_lerobot_SLA
+conda activate sla_lerobot
+export HF_HUB_DISABLE_XET=1   # 走代理时 Xet 下载会中断，关闭后用普通 HTTP，可断点续传
+# OmniVGGT 对齐教师（4.9GB，训练必需）
+hf download haofuly/SLA_training_component --include "omnivggt/*" \
+    --local-dir base_models/SLA_training_component
+# 官方 SLA 预训练权重（JAX 格式，12.5GB，可选，用于第2步）
+hf download haofuly/SLA_base --local-dir base_models/SLA_base_jax
+
+lerobot/pi05_base 已在 ~/.cache/huggingface 中，作为另一种起点无需下载。
+
+
+2. 将官方 SLA_base（JAX/orbax）转换为 LeRobot 权重（只需执行一次，约需几分钟和 ~30GB 内存）
+
+cd /home/jchen572/code_file/RBM_lerobot_SLA
+conda activate sla_lerobot
+python -m lerobot.policies.sla.convert_sla_jax_checkpoint \
+    --checkpoint-dir base_models/SLA_base_jax \
+    --output-dir base_models/sla_base
+
+输出 base_models/sla_base/model.safetensors（含 SLA 对齐投影器）和 config.json（已转换完成，约1分钟、峰值内存29GB）。
+已验证：818个张量全部严格加载；与 pi05_base 同名张量余弦相似度均 >= 0.975；
+从 sla_base 训练时 align_loss 起步即约 0.009（随机投影器约 0.98），说明对齐分支与官方实现一致。
+SLA_benchmark_ckpts 中的后训练 JAX checkpoint 同样可以转换（--chunk-size 设为其 action horizon）。
+成功标志：最后打印 "INFO Saved 818 tensors to base_models/sla_base"，且 base_models/sla_base/model.safetensors 约 15.5GB。
+以下输出无害，可忽略：
+    WARNING:jax... CUDA-enabled jaxlib is not installed. Falling back to cpu.   （转换本就只用 CPU）
+    WARNING:absl:Metadata file does not exist: .../params/_CHECKPOINT_METADATA  （orbax 可选元数据）
+    退出时 ResourceTracker ... '_recursion_count' 的 Traceback                   （本环境所有命令退出时都会出现）
+不想转换时，第3步把 --policy.pretrained_path 换成 lerobot/pi05_base（投影器随机初始化，已验证可训练）。
+
+
+3. SLA 全参数微调（单卡）
+
+cd /home/jchen572/code_file/RBM_lerobot_SLA
+conda activate sla_lerobot
+CUDA_VISIBLE_DEVICES=0 python -m lerobot.scripts.lerobot_train \
+    --dataset.repo_id=local/aloha_cup_selection_right \
+    --dataset.root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/aloha_cup_selection_red \
+    --dataset.video_backend=pyav \
+    --policy.type=sla \
+    --policy.pretrained_path=/home/jchen572/code_file/RBM_lerobot_SLA/base_models/sla_base \
+    --policy.vggt_weight_path=/home/jchen572/code_file/RBM_lerobot_SLA/base_models/SLA_training_component \
+    --policy.gradient_checkpointing=true \
+    --policy.dtype=bfloat16 \
+    --policy.device=cuda \
+    --policy.compile_model=false \
+    --policy.use_relative_actions=false \
+    --policy.push_to_hub=false \
+    --ema.enable=true \
+    --ema.decay=0.999 \
+    --output_dir=/home/jchen572/code_file/RBM_lerobot_SLA/lerobot/outputs/sla_aloha_red_cup_14d \
+    --job_name=sla_aloha_red_cup_14d \
+    --batch_size=8 \
+    --steps=30000 \
+    --save_freq=15000 \
+    --num_workers=8 \
+    --env_eval_freq=0 \
+    --wandb.enable=true \
+    --wandb.disable_artifact=true
+
+显存参考（RTX PRO 6000 96GB，bf16 + 梯度检查点）：batch 4 约 41GB（不开 EMA），batch 8 + EMA 约 56GB，
+batch 8 约 1.75 s/step。本命令已用 --steps=20 实测通过（从 sla_base 起步 action_loss 0.41→0.24，align_loss≈0.009）。
+日志中 action_loss / align_loss 分别记录，loss = action_loss + 0.5 * align_loss。
+SLA 默认参数即官方真机配置：
+    --policy.align_loss_coeff=0.5 --policy.vla_layers_align=12 --policy.vggt_layers_align=-1
+    --policy.state_dropout_prob=0.25 --policy.use_vlm_norm=true --policy.use_vggt_pe=true
+    --policy.ignore_img_padding_area=true
+--policy.align_loss_coeff=0 即退化为普通 pi0.5 训练（不加载 OmniVGGT）。
+显存紧张时可把 OmniVGGT 放到另一张卡：CUDA_VISIBLE_DEVICES=0,1 并加 --policy.align_vggt_device=cuda:1；
+或加 --policy.align_feature_batch_size=4 分块提取特征。
+不要开启随机裁剪/旋转等几何图像增强：对齐要求图像 token 与 VGGT 特征空间一一对应。
+官方配置训练 20000 步、batch 64；单卡 batch 8 时可按需增加 --steps。
+EMA 权重保存在 checkpoints/<step>/pretrained_model_ema，官方评估使用 EMA 权重。
+
+
+4. 从 checkpoint 续训
+
+cd /home/jchen572/code_file/RBM_lerobot_SLA
+conda activate sla_lerobot
+CUDA_VISIBLE_DEVICES=0 python -m lerobot.scripts.lerobot_train \
+    --config_path=/home/jchen572/code_file/RBM_lerobot_SLA/lerobot/outputs/sla_aloha_red_cup_14d/checkpoints/last/pretrained_model/train_config.json \
+    --resume=true
+
+
+5. 离线数据集检查（不连机器人）
+
+cd /home/jchen572/code_file/RBM_lerobot_SLA
+conda activate sla_lerobot
+CUDA_VISIBLE_DEVICES=0 python agilex-lerobot/eval_robot/eval_aloha.py \
+    --policy.path=./lerobot/outputs/sla_aloha_red_cup_14d/checkpoints/last/pretrained_model_ema \
+    --mode=dataset \
+    --dataset-root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/aloha_cup_selection_red \
+    --episode=0 \
+    --steps=300 \
+    --n-action-steps=50 \
+    --log=eval_action_logs/sla_aloha_offline.jsonl
+
+输出逐维与左右臂 MSE。未开 EMA 时把 pretrained_model_ema 换成 pretrained_model。
+已实测（last=030000 EMA，episode 0 前100步）：left_mse≈0.0062，right_mse≈7.7e-5。
+agilex-lerobot/eval_robot/aloha_policy.py 已放行 policy type=sla；推理不加载 OmniVGGT。
+
+
+6. ALOHA 实机评估（异步预取 + 自适应跟踪 + 结束回退首帧；与 PI0.5 流程相同）
+
+# 机器人端（agilex_image_service，已填写实际硬件标定）：
+bash start_all.sh --hardware-config=./hardware.json --execute-control
+
+# 推理机：
+cd /home/jchen572/code_file/RBM_lerobot_SLA
+conda activate sla_lerobot
+CUDA_VISIBLE_DEVICES=0 python agilex-lerobot/eval_robot/eval_aloha.py \
+    --policy.path=./lerobot/outputs/sla_aloha_red_cup_14d/checkpoints/last/pretrained_model_ema \
+    --n-action-steps=50 \
+    --async-prefetch \
+    --adaptive-tracking \
+    --prefetch-steps=5 \
+    --async-timeout=2 \
+    --dataset-root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/aloha_cup_selection_red \
+    --task="Select the red cup and place it on the black coaster." \
+    --mode=live \
+    --active-arm=both \
+    --frequency=15 \
+    --image-server-address=192.168.0.102 \
+    --head-camera-port=6100 \
+    --left-camera-port=6101 \
+    --right-camera-port=6102 \
+    --robot-host=192.168.0.102 \
+    --robot-port=6200 \
+    --joint-speed=0.45 \
+    --gripper-speed=0.04 \
+    --camera-timeout=2 \
+    --command-timeout=5 \
+    --policy-warmup-steps=5 \
+    --episode=0 \
+    --return-joint-speed=0.15 \
+    --return-gripper-speed=0.01 \
+    --return-timeout=60 \
+    --execute \
+    --log="./eval_action_logs/aloha_sla_live_execute_rollback_$(date +%Y%m%d_%H%M%S).jsonl"
+
+去掉 --execute 为只读预览（不下发动作；--adaptive-tracking 也仅在 --execute 时生效）。
+--dataset-root/--episode 提供 r 对齐的首帧目标和结束回退目标。
+按 r 对齐 / s 开始 / q 退出（与 PI0.5 相同）。未开 EMA 时换成 pretrained_model。
+策略输出的关节目标会先按 Piper 标准限位裁剪再下发（--joint-limit-margin，默认 0，负数关闭）：
+    训练数据左臂 joint5 最小值 -1.25 已超出固件限位 -1.222，模型偶尔输出到 -1.31，
+    超出服务端容差 0.05 会报 "Joint target outside configured hardware limits" 并中止；
+    裁剪后日志中 raw_action 记录裁剪前的原始输出（未裁剪时为 null）。
+
+
+7. 单元测试
+
+cd /home/jchen572/code_file/RBM_lerobot_SLA/lerobot
+conda activate sla_lerobot
+python -m pytest tests/policies/sla -q
+
+
+==========================================================================================
+Zerith H1 Pro 版本：task_003_red_300ml_coca_cola_into_basket_full23
+==========================================================================================
+
+数据：35 episodes / 34592 frames / 30 FPS，robot_type=zerith_h1_pro，三相机 cam_high / cam_left_wrist / cam_right_wrist。
+task: Put the red 300ml bottle of Coca-Cola into the basket.
+
+维度（与 ALOHA 的 14 维不同，不能沿用第3节命令）：
+    原始 state/action 均为 23D：左臂7 + 左夹爪1 + 右臂7 + 右夹爪1 + 腰升降/俯仰/旋转3 + 头 yaw/pitch 2 + 底盘线速度/角速度 2。
+    --dataset.zerith_action_view=auto：自动删除恒定为0的头部和底盘4维（左夹爪虽恒定仍固定保留），
+    训练 action = 19D（索引 0~18，含腰3维），observation.state 保留完整 23D。
+    映射写入 output_dir/zerith_action_layout.json，并随 pretrained_model 和 pretrained_model_ema 一起保存；
+    推理时用它 expand() 恢复为 23D SDK 顺序（删除的维度填训练时的常数 0）。
+    action/state 统计量在内存中按 19D/23D 重算，不修改原始数据文件。
+    必须用绝对动作（--policy.use_relative_actions=false，state 23D 与 action 19D 维度不同）。
+    pi0.5/SLA 内部把 state/action 补零到 32 维，19D/23D 均在范围内。
+
+已用 --steps=4 实测通过（GPU1，batch 8 + EMA，约 56GB，约 1.67 s/step）：
+    从 sla_base 起步 action_loss 0.69→0.49，align_loss≈0.05；
+    checkpoint 中 config 为 state=[23]、action=[19]，pretrained_model_ema 含 zerith_action_layout.json；
+    eval_h1.py --mode=offline 加载 EMA 权重输出 (50, 19)，恢复后 full_action 为 23D。
+zerith_lerobot/eval_robot/h1_runtime.py 已放行 policy type=sla（原来只接受 pi05/dm05/act）。
+
+
+Z1. SLA 全参数微调（单卡，19D action / 23D state）
+
+cd /home/jchen572/code_file/RBM_lerobot_SLA
+conda activate sla_lerobot
+CUDA_VISIBLE_DEVICES=1 python -m lerobot.scripts.lerobot_train \
+    --dataset.repo_id=local/task_003_red_300ml_coca_cola_into_basket_full23 \
+    --dataset.root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/task_003_red_300ml_coca_cola_into_basket_full23 \
+    --dataset.feature_names='["action","observation.state","observation.images.cam_high","observation.images.cam_left_wrist","observation.images.cam_right_wrist"]' \
+    --dataset.video_backend=pyav \
+    --dataset.zerith_action_view=auto \
+    --policy.type=sla \
+    --policy.pretrained_path=/home/jchen572/code_file/RBM_lerobot_SLA/base_models/sla_base \
+    --policy.vggt_weight_path=/home/jchen572/code_file/RBM_lerobot_SLA/base_models/SLA_training_component \
+    --policy.gradient_checkpointing=true \
+    --policy.dtype=bfloat16 \
+    --policy.device=cuda \
+    --policy.compile_model=false \
+    --policy.use_relative_actions=false \
+    --policy.chunk_size=50 \
+    --policy.n_action_steps=50 \
+    --policy.push_to_hub=false \
+    --ema.enable=true \
+    --ema.decay=0.999 \
+    --output_dir=/home/jchen572/code_file/RBM_lerobot_SLA/lerobot/outputs/sla_zerith_coca_cola_19d \
+    --job_name=sla_zerith_coca_cola_19d \
+    --batch_size=8 \
+    --steps=30000 \
+    --save_freq=15000 \
+    --num_workers=8 \
+    --env_eval_freq=0 \
+    --wandb.enable=true \
+    --wandb.disable_artifact=true
+
+输出目录必须是新目录；不要拿 ALOHA 14D 的 checkpoint 续训成 Zerith 19D。
+最终 checkpoint：lerobot/outputs/sla_zerith_coca_cola_19d/checkpoints/last/pretrained_model_ema（EMA，推荐）
+                 lerobot/outputs/sla_zerith_coca_cola_19d/checkpoints/last/pretrained_model
+显存紧张时同第3节：--policy.align_vggt_device=cuda:1 或 --policy.align_feature_batch_size=4。
+
+
+Z2. 续训（保留输出目录中的 zerith_action_layout.json）
+
+cd /home/jchen572/code_file/RBM_lerobot_SLA
+conda activate sla_lerobot
+CUDA_VISIBLE_DEVICES=0 python -m lerobot.scripts.lerobot_train \
+    --config_path=/home/jchen572/code_file/RBM_lerobot_SLA/lerobot/outputs/sla_zerith_coca_cola_19d/checkpoints/last/pretrained_model/train_config.json \
+    --resume=true
+
+
+Z3. 离线推理（不连机器人；输出 19D action 和恢复后的 23D full_action）
+
+cd /home/jchen572/code_file/RBM_lerobot_SLA
+conda activate sla_lerobot
+export PYTHONPATH="$PWD/lerobot/src${PYTHONPATH:+:$PYTHONPATH}"
+CUDA_VISIBLE_DEVICES=0 python zerith_lerobot/eval_robot/eval_h1.py \
+    --checkpoint=/home/jchen572/code_file/RBM_lerobot_SLA/lerobot/outputs/sla_zerith_coca_cola_19d/checkpoints/last/pretrained_model_ema \
+    --dataset-root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/task_003_red_300ml_coca_cola_into_basket_full23 \
+    --episode=0 \
+    --task="Put the red 300ml bottle of Coca-Cola into the basket." \
+    --mode=offline \
+    --device=cuda \
+    --n-action-steps=50 \
+    --log="eval_action_logs/h1_sla_offline_$(date +%Y%m%d_%H%M%S).jsonl"
+
+已实测（last=015000 EMA）：输出 (50, 19)、数值有限，日志 full_action 为 23D。
+
+
+Z4. H1 实机（H1 端服务的打包/启动/初始化与 zerith_order.txt 第 8.1~8.7 节完全相同）
+
+# 实时只读预览（H1 端运行 8.3 只读服务；不下发动作）
+cd /home/jchen572/code_file/RBM_lerobot_SLA
+conda activate sla_lerobot
+export PYTHONPATH="$PWD/lerobot/src${PYTHONPATH:+:$PYTHONPATH}"
+CUDA_VISIBLE_DEVICES=0 python zerith_lerobot/eval_robot/eval_h1.py \
+    --checkpoint=/home/jchen572/code_file/RBM_lerobot_SLA/lerobot/outputs/sla_zerith_coca_cola_19d/checkpoints/last/pretrained_model_ema \
+    --dataset-root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/task_003_red_300ml_coca_cola_into_basket_full23 \
+    --episode=0 \
+    --task="Put the red 300ml bottle of Coca-Cola into the basket." \
+    --mode=preview \
+    --device=cuda \
+    --n-action-steps=50 \
+    --host=172.31.200.1 \
+    --control-port=6200 \
+    --camera-ports 55555 55556 55557 \
+    --preview-steps=3 \
+    --log="eval_action_logs/h1_sla_preview_$(date +%Y%m%d_%H%M%S).jsonl"
+
+# 交互执行（异步预取；H1 端需运行 8.7 执行服务）
+cd /home/jchen572/code_file/RBM_lerobot_SLA
+conda activate sla_lerobot
+export PYTHONPATH="$PWD/lerobot/src${PYTHONPATH:+:$PYTHONPATH}"
+CUDA_VISIBLE_DEVICES=0 python zerith_lerobot/eval_robot/eval_h1.py \
+    --checkpoint=/home/jchen572/code_file/RBM_lerobot_SLA/lerobot/outputs/sla_zerith_coca_cola_19d/checkpoints/last/pretrained_model_ema \
+    --dataset-root=/home/jchen572/code_file/RBM_lerobot/lerobotv3_datasets/task_003_red_300ml_coca_cola_into_basket_full23 \
+    --episode=0 \
+    --task="Put the red 300ml bottle of Coca-Cola into the basket." \
+    --mode=live \
+    --device=cuda \
+    --n-action-steps=50 \
+    --async-prefetch \
+    --prefetch-steps=5 \
+    --host=172.31.200.1 \
+    --control-port=6200 \
+    --camera-ports 55555 55556 55557 \
+    --frequency=15 \
+    --max-inference-seconds=15 \
+    --alignment-timeout=60 \
+    --execute \
+    --log="eval_action_logs/h1_sla_live_$(date +%Y%m%d_%H%M%S).jsonl"
+
+--execute 只能与 --mode=live 同时使用；去掉 --async-prefetch 即同步推理。
+按键：r 限速对齐首帧；s 开始；p 保持；b 返回首帧；j 保存图像；q 停止并退出（不自动回位）。
+执行模式退出后需重启 8.7 服务。头部保持使能时角度，底盘保持零速度（这4维模型不输出）。

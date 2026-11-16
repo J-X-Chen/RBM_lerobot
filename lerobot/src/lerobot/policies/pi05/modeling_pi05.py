@@ -655,11 +655,16 @@ class PaliGemmaWithExpertModel(
         suppress_prefix_grads: bool = False,
         attention_fn: JointAttentionFn | None = None,
         norm_backend=None,
+        prefix_hidden_capture: dict[str, Any] | None = None,
     ):
         """Run the prefix, the suffix, or both streams through the joint layers.
 
         ``suppress_prefix_grads``, ``attention_fn`` and ``norm_backend`` only apply when both
         streams are given; see :func:`compute_layer_complete`.
+
+        ``prefix_hidden_capture`` (joint path only) is a dict with ``layer`` (0-based index) and
+        optional ``tokens`` (leading prefix-token count); the PaliGemma stream output of that layer
+        is stored under its ``hidden`` key (used by SLA's spatial alignment loss).
         """
         if adarms_cond is None:
             adarms_cond = [None, None]
@@ -737,6 +742,12 @@ class PaliGemmaWithExpertModel(
                         norm_backend=norm_backend,
                         attention_collector=attention_collector,
                         layer_idx=layer_idx,
+                    )
+                if prefix_hidden_capture is not None and layer_idx == prefix_hidden_capture["layer"]:
+                    token_count = prefix_hidden_capture.get("tokens")
+                    prefix_hidden = inputs_embeds[0]
+                    prefix_hidden_capture["hidden"] = (
+                        prefix_hidden if token_count is None else prefix_hidden[:, :token_count]
                     )
 
             # final norm

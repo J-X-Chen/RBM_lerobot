@@ -20,6 +20,20 @@ from aloha_lifecycle import TerminalCommands, slow_move
 from aloha_policy import AlohaPolicy
 from robot_control.piper_bimanual import ArmConfig, PiperBimanual
 
+# Standard Piper firmware joint limits (piper_sdk ROBOT_JOINT_LIMIT_PRESET_RAD["piper"]).
+PIPER_JOINT_MIN = np.array([-2.617994, 0.0, -2.967060, -1.745330, -1.221730, -2.094396])
+PIPER_JOINT_MAX = np.array([2.617994, 3.141593, 0.0, 1.745330, 1.221730, 2.094396])
+
+
+def clip_to_joint_limits(action, margin):
+    """Clip both arms' joint targets inside Piper limits; grippers are left to the service."""
+    clipped = np.asarray(action, dtype=np.float64).copy()
+    for offset in (0, 7):
+        clipped[offset : offset + 6] = np.clip(
+            clipped[offset : offset + 6], PIPER_JOINT_MIN + margin, PIPER_JOINT_MAX - margin
+        )
+    return clipped
+
 
 def offline(args, runner):
     from lerobot.datasets.cobot_magic import validate_cobot_magic_features
@@ -245,6 +259,12 @@ def live(args, runner):
                 if waiting:
                     # Only hold the last acknowledged output while a bounded prediction is pending.
                     action = tracking_target.copy() if tracking_target is not None else (robot.last.copy() if robot.last is not None else state.copy())
+                raw_action = None
+                margin = getattr(args, "joint_limit_margin", 0.0)
+                if not waiting and margin >= 0:
+                    clipped = clip_to_joint_limits(action, margin)
+                    if not np.array_equal(clipped, action):
+                        raw_action, action = action, clipped
                 command = robot.send(action, 1 / args.frequency)
                 if pacer is not None and not waiting:
                     tracking_target = robot.accepted_target.copy()
@@ -260,6 +280,7 @@ def live(args, runner):
                             "queued_actions": len(runner.queue),
                             "state": state.tolist(),
                             "action": action.tolist(),
+                            "raw_action": None if raw_action is None else raw_action.tolist(),
                             "command": command.tolist(),
                             "execute": args.execute,
                         }
@@ -327,6 +348,8 @@ def main(argv=None):
     parser.add_argument("--return-joint-speed", type=float, default=0.15)
     parser.add_argument("--return-gripper-speed", type=float, default=0.01)
     parser.add_argument("--return-timeout", type=float, default=60.0)
+    parser.add_argument("--joint-limit-margin", type=float, default=0.0,
+                        help="Clip policy joint targets this far (rad) inside Piper limits before sending; negative disables")
     parser.add_argument("--log", type=Path, default=Path("eval_action_logs/aloha.jsonl"))
     parser.add_argument("--robot-mask", action="store_true", help="Render robot silhouette from measured state and fill RGB")
     parser.add_argument("--mask-fill-rgb", type=int, nargs=3, default=[0, 255, 0], metavar=("R", "G", "B"))
@@ -349,6 +372,8 @@ def main(argv=None):
     ):
         if not np.isfinite(getattr(args, name)) or getattr(args, name) <= 0:
             parser.error(name + " must be finite and positive")
+    if not np.isfinite(args.joint_limit_margin) or args.joint_limit_margin > 0.2:
+        parser.error("joint-limit-margin must be finite and at most 0.2 rad")
     if args.policy_warmup_steps < 0:
         parser.error("policy-warmup-steps must be nonnegative")
     if args.prefetch_steps < 1 or not np.isfinite(args.async_timeout) or args.async_timeout <= 0:

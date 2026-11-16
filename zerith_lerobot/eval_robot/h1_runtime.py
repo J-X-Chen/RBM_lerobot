@@ -1,4 +1,4 @@
-"""PI0.5/DM0.5 checkpoint runtime using the root LeRobot implementation."""
+"""PI0.5/DM0.5/SLA checkpoint runtime using the root LeRobot implementation."""
 from pathlib import Path
 import numpy as np
 import torch
@@ -25,8 +25,8 @@ class H1Policy:
         for name in ('gradient_checkpointing', 'vlm_gradient_checkpointing', 'ae_gradient_checkpointing'):
             if hasattr(cfg, name):
                 setattr(cfg, name, False)
-        if cfg.type not in {'pi05', 'dm05', 'act'} or getattr(cfg, 'use_relative_actions', False):
-            raise ValueError('Expected absolute PI05/DM05/ACT checkpoint')
+        if cfg.type not in {'pi05', 'dm05', 'sla', 'act'} or getattr(cfg, 'use_relative_actions', False):
+            raise ValueError('Expected absolute PI05/DM05/SLA/ACT checkpoint')
         if tuple(cfg.input_features['observation.state'].shape) != (23,) or tuple(cfg.output_features['action'].shape) != (19,):
             raise ValueError('Expected checkpoint state=23, action=19')
         if set(cfg.image_features) != set(CAMERAS):

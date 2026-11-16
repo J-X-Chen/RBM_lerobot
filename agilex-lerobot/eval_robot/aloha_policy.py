@@ -17,8 +17,8 @@ class AlohaPolicy:
         config = PreTrainedConfig.from_pretrained(checkpoint)
         config.pretrained_path = checkpoint
         config.device = device
-        if config.type not in {"pi05", "dm05"}:
-            raise ValueError("Expected a trained PI05 or DM05 checkpoint")
+        if config.type not in {"pi05", "dm05", "sla"}:
+            raise ValueError("Expected a trained PI05, SLA or DM05 checkpoint")
         if config.use_relative_actions:
             raise ValueError("This evaluator requires the absolute-action ALOHA training recipe")
         if config.input_features["observation.state"].shape != (14,) or config.output_features["action"].shape != (14,):

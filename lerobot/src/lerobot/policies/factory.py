@@ -418,7 +418,7 @@ def make_policy(
     robot_finetuning = (
         ds_meta is not None
         and getattr(ds_meta, "robot_type", None) in {"cobot_magic", "zerith_h1_pro"}
-        and cfg.type in {"pi05", "dm05"}
+        and cfg.type in {"pi05", "dm05", "sla"}
     )
     if not cfg.input_features or robot_finetuning:
         cfg.input_features = {key: ft for key, ft in features.items() if key not in cfg.output_features}

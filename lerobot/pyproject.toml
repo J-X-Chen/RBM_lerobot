@@ -433,7 +433,13 @@ where = ["src"]
 [tool.ruff]
 target-version = "py312"
 line-length = 110
-exclude = ["tests/artifacts/**/*.safetensors", "*_pb2.py", "*_pb2_grpc.py"]
+exclude = [
+    "tests/artifacts/**/*.safetensors",
+    "*_pb2.py",
+    "*_pb2_grpc.py",
+    # Vendored OmniVGGT (kept close to upstream so syncs stay clean).
+    "src/lerobot/policies/sla/omnivggt/**",
+]
 
 [tool.ruff.lint]
 # E, W: pycodestyle errors and warnings
@@ -570,7 +576,7 @@ fail-under = 52
 output-format = "term-missing"
 color = true
 paths = ["src/lerobot"]
-exclude = ["src/lerobot/policies/molmoact2/molmoact2_hf_model"]
+exclude = ["src/lerobot/policies/molmoact2/molmoact2_hf_model", "src/lerobot/policies/sla/omnivggt"]
 
 [tool.pytest.ini_options]
 markers = [
@@ -610,5 +616,9 @@ enable_error_code = [
 # One ruleset for all checked code. Excluded: lerobot.rl (not typed yet) and the vendored
 # molmoact2_hf_model (kept verbatim so upstream syncs stay clean).
 [[tool.mypy.overrides]]
-module = ["lerobot.rl.*", "lerobot.policies.molmoact2.molmoact2_hf_model.*"]
+module = [
+    "lerobot.rl.*",
+    "lerobot.policies.molmoact2.molmoact2_hf_model.*",
+    "lerobot.policies.sla.omnivggt.*",
+]
 ignore_errors = true

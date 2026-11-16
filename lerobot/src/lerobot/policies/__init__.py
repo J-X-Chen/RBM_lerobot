@@ -45,6 +45,7 @@ from .rtc import (
     reanchor_relative_rtc_prefix,
     validate_trained_rtc_horizon,
 )
+from .sla.configuration_sla import SLAConfig as SLAConfig
 from .smolvla.configuration_smolvla import SmolVLAConfig as SmolVLAConfig
 from .tdmpc.configuration_tdmpc import TDMPCConfig as TDMPCConfig
 from .utils import make_robot_action, prepare_observation_for_inference
@@ -76,6 +77,7 @@ __all__ = [
     "PI0Config",
     "PI0FastConfig",
     "PI05Config",
+    "SLAConfig",
     "SmolVLAConfig",
     "TDMPCConfig",
     "VLAJEPAConfig",
